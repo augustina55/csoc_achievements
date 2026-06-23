@@ -221,12 +221,12 @@ const html = `<!DOCTYPE html>
 </header>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('all')">All Achievements <span class="tab-badge" id="badge-all">—</span></div>
-  <div class="tab" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
+  <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
+  <div class="tab" onclick="switchTab('all')">All Achievements <span class="tab-badge" id="badge-all">—</span></div>
 </div>
 
 <!-- All Achievements -->
-<div class="panel active" id="panel-all">
+<div class="panel" id="panel-all">
   <div class="sidebar">
     <div class="sidebar-search">
       <input id="search-input" type="text" placeholder="Search player…" oninput="filterPlayers(this.value)">
@@ -242,7 +242,7 @@ const html = `<!DOCTYPE html>
 </div>
 
 <!-- Achievers -->
-<div class="panel" id="panel-achievers">
+<div class="panel active" id="panel-achievers">
   <div class="achievers-panel">
     <div class="achievers-header">
       <span class="achievers-title">★ Achievers</span>
@@ -658,7 +658,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  di(lg,px+pw-170,py+10,160,80);',
     '  dc(pf,153,575,105);',
     '}'
-  ].join('\n');
+  ].join('\\n');
 
   return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
     +'<title>Poster Preview</title><style>'+css+'</style></head>'
@@ -684,7 +684,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'  <div class="footer-url">learn.circlechess.com</div>'
     +'</div>'
     +'</div>'
-    +'<'+'script>\n'+sc+'\n<'+'/scri'+'pt>'
+    +'<'+'script>'+sc+'<'+'/scri'+'pt>'
     +'</body></html>';
 }
 
