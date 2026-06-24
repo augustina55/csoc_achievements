@@ -38,20 +38,18 @@ data.forEach(p => {
     const rated  = isRated(t.tournament_name);
     const topRank    = rank != null && rank < 10;
     const ratingGain = rated && t.rating_change != null && t.rating_change >= 30;
-    if (topRank || ratingGain) {
-      achieverRows.push({
-        player_name:     p.cr_name || p.player_name,
-        fide_id:         p.fide_id,
-        tournament_name: cleanTournName(t.tournament_name_full || t.tournament_name),
-        player_link:     t.player_link || t.tournament_link || '',
-        date:            t.date || '',
-        rank:            rank != null ? rank : null,
-        rating_change:   t.rating_change != null ? t.rating_change : null,
-        is_rated:        rated,
-        status:          p.status || '',
-        type: (topRank && ratingGain) ? 'both' : (topRank ? 'rank' : 'rating')
-      });
-    }
+    achieverRows.push({
+      player_name:     p.cr_name || p.player_name,
+      fide_id:         p.fide_id,
+      tournament_name: cleanTournName(t.tournament_name_full || t.tournament_name),
+      player_link:     t.player_link || t.tournament_link || '',
+      date:            t.date || '',
+      rank:            rank != null ? rank : null,
+      rating_change:   t.rating_change != null ? t.rating_change : null,
+      is_rated:        rated,
+      status:          p.status || '',
+      type: (topRank && ratingGain) ? 'both' : (topRank ? 'rank' : (ratingGain ? 'rating' : ''))
+    });
   });
 });
 
@@ -495,7 +493,7 @@ function openPosterModal(idx) {
   photoDataUri = '';
   document.getElementById('modal-player').value            = currentRow.player_name;
   document.getElementById('modal-achievement').textContent = buildAchText(currentRow);
-  document.getElementById('modal-tournament').value        = currentRow.tournament_name;
+  document.getElementById('modal-tournament').value        = '< ' + currentRow.tournament_name + ' >';
   document.getElementById('photo-preview').style.display   = 'none';
   document.getElementById('upload-hint').innerHTML         = '<strong>Click to upload</strong> a player photo';
   document.getElementById('photo-input').value             = '';
@@ -655,7 +653,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'    <div class="student-name">'+escHtml(name)+'</div>'
     +'    <div class="divider"></div>'
     +'    <div class="ach-pos">'+escHtml(posText)+'</div>'
-    +'    <div class="ach-tourn">&lt; '+escHtml(tournamentName)+' &gt;</div>'
+    +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
     +'  </div>'
     +(photoUri ? '  <div class="profile"><img src="'+photoUri+'" alt=""></div>' : '')
     +'  <img class="chess" src="'+CHESS_B64+'" alt="">'
