@@ -17,6 +17,19 @@ function isRated(name) {
   return n.includes('FIDE') || n.includes('RATED');
 }
 
+function cleanTournName(name) {
+  if (!name) return '';
+  let s = name
+    .replace(/\s*:.*$/i, '')             // colon and everything after
+    .replace(/\s*contact.*/i, '')         // "contact" and everything after
+    .replace(/\s*\b\d{7,}\b\s*/g, ' ')   // mobile/phone numbers (7+ digits)
+    .replace(/\s+/g, ' ')
+    .trim();
+  const m = s.match(/^(.*?\b20\d{2}\b)/); // truncate after year like 2026
+  if (m) s = m[1].trim();
+  return s;
+}
+
 // Build one row per qualifying tournament result
 const achieverRows = [];
 data.forEach(p => {
@@ -29,7 +42,7 @@ data.forEach(p => {
       achieverRows.push({
         player_name:     p.cr_name || p.player_name,
         fide_id:         p.fide_id,
-        tournament_name: t.tournament_name_full || t.tournament_name,
+        tournament_name: cleanTournName(t.tournament_name_full || t.tournament_name),
         player_link:     t.player_link || t.tournament_link || '',
         date:            t.date || '',
         rank:            rank != null ? rank : null,
@@ -325,6 +338,18 @@ function isRated(name) {
   return n.includes('FIDE') || n.includes('RATED');
 }
 
+function cleanTournName(name) {
+  if (!name) return '';
+  var s = name
+    .replace(/\\s*:.*$/i, '')
+    .replace(/\\s*contact.*/i, '')
+    .replace(/\\s*\\b\\d{7,}\\b\\s*/g, ' ')
+    .replace(/\\s+/g, ' ').trim();
+  var m = s.match(/^(.*?\\b20\\d{2}\\b)/);
+  if (m) s = m[1].trim();
+  return s;
+}
+
 function isAchiever(p) {
   return p.tournaments.some(function(t) {
     var r = t.rank_from_page || t.rank;
@@ -356,7 +381,7 @@ function tournamentRows(tournaments) {
   return tournaments.map(function(t) {
     var rank = t.rank_from_page || t.rank;
     var pts  = t.points !== null && t.points !== undefined ? t.points : '—';
-    var tfull = t.tournament_name_full || t.tournament_name;
+    var tfull = cleanTournName(t.tournament_name_full || t.tournament_name);
     var tn   = tfull.length > 36 ? tfull.slice(0,36)+'…' : tfull;
     return \`<tr>
       <td><a href="\${t.tournament_link||'#'}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" title="\${tfull}">\${tn}</a></td>
@@ -682,7 +707,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'    <div class="student-name">'+escHtml(name)+'</div>'
     +'    <div class="divider"></div>'
     +'    <div class="ach-pos">'+escHtml(posText)+'</div>'
-    +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
+    +'    <div class="ach-tourn">&lt; '+escHtml(tournamentName)+' &gt;</div>'
     +'  </div>'
     +(photoUri ? '  <div class="profile"><img src="'+photoUri+'" alt=""></div>' : '')
     +'  <img class="chess" src="'+CHESS_B64+'" alt="">'
