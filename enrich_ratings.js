@@ -33,18 +33,19 @@ async function getSnrAndName(tournId, fideId) {
   const r = await get(url);
   if (r.status !== 200) return { snr: null, cr_name: null, tournament_name_full: null };
 
-  // Extract full tournament name from page title: "Chess-Results.com - NAME - Starting Rank"
+  // Extract full tournament name — H2 is the most direct source on chess-results pages
   let tournament_name_full = null;
-  const titleM = r.text.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleM) {
-    const parts = titleM[1].split(/\s*-\s*/);
-    // parts[0] = "Chess-Results.com", parts[1..n-1] = tournament name, parts[n] = "Starting Rank" / "Cross Table" etc
-    if (parts.length >= 3) {
-      tournament_name_full = parts.slice(1, -1).join(' - ').trim();
-    } else if (parts.length === 2) {
-      tournament_name_full = parts[1].trim();
+  const h2M = r.text.match(/<h2[^>]*>\s*([^<]{4,})\s*<\/h2>/i);
+  if (h2M) {
+    tournament_name_full = h2M[1].trim();
+  } else {
+    // Fallback: title format "Chess-Results Server … - TOURNAMENT NAME"
+    const titleM = r.text.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleM) {
+      const parts = titleM[1].split(' - ');
+      const last = parts[parts.length - 1].trim();
+      if (last.length >= 4) tournament_name_full = last;
     }
-    if (tournament_name_full && tournament_name_full.length < 4) tournament_name_full = null;
   }
 
   const fideStr = String(fideId);
