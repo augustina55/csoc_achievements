@@ -344,7 +344,6 @@ const totalTournaments = DATA.reduce(function(s,p){ return s + p.tournaments.len
 document.getElementById('stat-players').textContent    = DATA.length;
 document.getElementById('stat-tournaments').textContent = totalTournaments;
 document.getElementById('stat-achievers').textContent  = ${uniqueAchievers};
-document.getElementById('badge-all').textContent       = DATA.length;
 document.getElementById('badge-achievers').textContent = ACHIEVER_ROWS.length;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
