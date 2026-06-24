@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CSOC Achievements — June 2026</title>
+<title>CSOC - Achievers</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -221,7 +221,7 @@
     <div class="achievers-header" style="flex-wrap:wrap;gap:10px">
       <span class="achievers-title">🎖 Got Rating</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
-        <select id="got-month-sel" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
+        <select id="got-month-sel" onchange="loadGotRating()" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
         <button class="filter-btn active" onclick="fetchGotRating()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
         <button class="filter-btn" onclick="loadGotFromSheet()" id="got-sheet-btn" style="padding:5px 16px">📋 Load from Sheet</button>
       </div>
@@ -1030,34 +1030,39 @@ function fetchGotRating() {
   next();
 }
 
-// ── Load from Sheet ───────────────────────────────────────────────────────────
+// ── Load from Sheet → auto-fetch API if sheet empty for this month ────────────
 function loadGotFromSheet() {
   var month = selectedMonth();
-  if (!GAS_URL) { setMsg('GAS_URL not configured — set it in build_html.js', '#c0392b'); return; }
-  setMsg('Loading from sheet…');
+  if (!GAS_URL) { fetchGotRating(); return; }
+  setMsg('Checking sheet for ' + month + '…');
   fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
     .then(function(d) {
-      if (!d.ok) { setMsg('Sheet error: ' + d.error, '#c0392b'); return; }
+      if (!d.ok) { setMsg('Sheet error: ' + d.error + ' — fetching from API…', '#f7a440'); fetchGotRating(); return; }
       var rows = d.rows || [];
+      if (rows.length === 0) {
+        // Nothing in sheet for this month — auto-fetch from API and save
+        setMsg('No data in sheet for ' + month + ' — fetching from FIDE API…');
+        fetchGotRating();
+        return;
+      }
       var playerMap = {};
       DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
       var results = rows.map(function(row) {
-        // Columns: Player Name, FIDE ID, Status, Period, Classical, Rapid, Blitz
         var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1], status:row[2] };
-        return { player:p, period:row[3], std:row[4]||0, rap:row[5]||0, bli:row[6]||0,
-          gStd:!!row[4], gRap:!!row[5], gBli:!!row[6] };
+        return { player:p, period:row[3], std:Number(row[4])||0, rap:Number(row[5])||0, bli:Number(row[6])||0,
+          gStd:!!(row[4]>0), gRap:!!(row[5]>0), gBli:!!(row[6]>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
       renderGotRating(results, document.getElementById('got-rating-tbody'));
-      setMsg(results.length + ' records loaded from sheet for ' + month, '#1e7a3e');
+      setMsg('✓ Loaded ' + results.length + ' records from sheet for ' + month, '#1e7a3e');
     })
-    .catch(function(e){ setMsg('Failed to load from sheet: ' + e.message, '#c0392b'); });
+    .catch(function(){ setMsg('Sheet unavailable — fetching from FIDE API…'); fetchGotRating(); });
 }
 
-// ── Auto-load on tab switch ───────────────────────────────────────────────────
+// ── Auto-load on tab switch or month change: sheet first, API as fallback ─────
 function loadGotRating() {
-  if (GAS_URL) { loadGotFromSheet(); } else { fetchGotRating(); }
+  loadGotFromSheet();
 }
 
 // ── Save to Sheet ─────────────────────────────────────────────────────────────
