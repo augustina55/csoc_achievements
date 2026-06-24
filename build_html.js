@@ -1047,23 +1047,48 @@ function loadGotRating() {
   loadGotFromSheet();
 }
 
-// ── Save to Sheet ─────────────────────────────────────────────────────────────
+// ── Save to Sheet — pre-checks existing rows client-side, skips write if all present ─
 function saveGotRatingToSheet(results, month) {
   if (!GAS_URL || !results.length) return;
-  var rows = results.map(function(r) {
-    var p = r.player;
-    return [p.cr_name||p.player_name, p.fide_id, p.status||'', month,
-            r.std||0, r.rap||0, r.bli||0];
-  });
-  var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
-  fetch(url)
+  // Read existing records for this month first
+  fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d.ok) setMsg('✓ Saved to sheet (' + d.added + ' new, ' + d.skipped + ' skipped) — ' +
-        results.length + ' total for ' + month, '#1e7a3e');
-      else setMsg('Sheet write error: ' + d.error, '#c0392b');
+    .then(function(d) {
+      var existingIds = new Set();
+      if (d.ok && d.rows) {
+        d.rows.forEach(function(row){ existingIds.add(String(row[1]).trim()); });
+      }
+      var newResults = results.filter(function(r){
+        return !existingIds.has(String(r.player.fide_id).trim());
+      });
+      if (!newResults.length) {
+        setMsg('All records already in sheet for ' + month, '#1e7a3e');
+        return;
+      }
+      var rows = newResults.map(function(r) {
+        var p = r.player;
+        return [p.cr_name||p.player_name, p.fide_id, p.status||'', month,
+                r.std||0, r.rap||0, r.bli||0];
+      });
+      var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
+      fetch(url)
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d.ok) setMsg('✓ Saved ' + d.added + ' new records to sheet for ' + month, '#1e7a3e');
+          else setMsg('Sheet write error: ' + d.error, '#c0392b');
+        })
+        .catch(function(){});
     })
-    .catch(function(){});
+    .catch(function(){
+      // If pre-check fails, write anyway (GAS dedup will handle it)
+      var rows = results.map(function(r) {
+        var p = r.player;
+        return [p.cr_name||p.player_name, p.fide_id, p.status||'', month,
+                r.std||0, r.rap||0, r.bli||0];
+      });
+      var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
+      fetch(url).catch(function(){});
+    });
 }
 
 // ── Save Achievements to Sheet in batches (called at page load if GAS_URL set) ─
