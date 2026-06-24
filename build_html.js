@@ -622,7 +622,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);',
     '  ctx.closePath();ctx.fillStyle=ST;ctx.fill();',
     '  ctx.save();ctx.translate(sx+sw/2,sy+sh/2-16);ctx.rotate(-Math.PI/2);',
-    '  ctx.font="900 105px \\"Arial Black\\",Arial,sans-serif";ctx.strokeStyle="#ffffff";',
+    '  ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#ffffff";',
     '  ctx.lineWidth=5;ctx.textAlign="center";ctx.textBaseline="middle";',
     '  ctx.strokeText("CHAMP",0,0);ctx.restore();',
     '  var px=233,py=55,pw=307,ph=590;',
