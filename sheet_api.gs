@@ -21,7 +21,8 @@ var SS_ID = '1oXqceUMlEYF9mpHyBteh8lD-gb69EsYIvNqOune31mI';
 var GOT_HEADERS  = ['Player Name','FIDE ID','Status','Period','Classical','Rapid','Blitz','Saved At'];
 
 // ── Achievements headers ────────────────────────────────────────────────────
-var ACH_HEADERS  = ['Player Name','FIDE ID','Status','Tournament','Date','Rank','Rating ±','Type','Rated','Saved At'];
+// Columns: Player Name | FIDE ID | Tournament | Rank | Rating ± | Rated | Date | Saved At
+var ACH_HEADERS  = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
 
 // ── doGet ───────────────────────────────────────────────────────────────────
 function doGet(e) {
@@ -53,10 +54,10 @@ function doGet(e) {
       result = { ok: true, rows: all.slice(1) };
 
     } else if (action === 'write_achievements') {
-      // rows: [[name, fide_id, status, tournament, date, rank, rating_change, type, rated], ...]
+      // rows: [[name, fide_id, tournament, rank, rating_change, rated, date], ...]
       var rows = JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
-      var added = appendDedup(sh, rows, [1, 3]); // dedup on fide_id + tournament name
+      var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id (col1) + tournament (col2)
       result = { ok: true, added: added, skipped: rows.length - added };
 
     } else {

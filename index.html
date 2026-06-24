@@ -178,9 +178,11 @@
   <div class="achievers-panel">
     <div class="achievers-header">
       <span class="achievers-title">★ Achievers</span>
+      <div id="ach-save-msg" style="font-size:0.81rem;color:#888;"></div>
       <div class="filter-row">
         <button class="filter-btn active" id="fbtn-all"   onclick="setFilter('all')">All</button>
         <button class="filter-btn"        id="fbtn-rated" onclick="setFilter('rated')">FIDE / Rated</button>
+        <button class="filter-btn" onclick="saveAchievementsToSheet()" style="padding:5px 16px">💾 Save to Sheet</button>
       </div>
     </div>
     <div class="table-wrap">
@@ -1022,20 +1024,37 @@ function saveGotRatingToSheet(results, month) {
     });
 }
 
-// ── Save Achievements to Sheet in batches (called at page load if GAS_URL set) ─
+// ── Save Achievements to Sheet — batches of 50, shows status ─────────────────
+function setAchMsg(txt, color) {
+  var el = document.getElementById('ach-save-msg');
+  if (el) { el.textContent = txt; el.style.color = color || '#888'; }
+}
 function saveAchievementsToSheet() {
-  if (!GAS_URL) return;
+  if (!GAS_URL) { setAchMsg('GAS_URL not set', '#c0392b'); return; }
+  setAchMsg('Saving to sheet…', '#888');
+  // Columns: Player Name, FIDE ID, Tournament, Rank, Rating ±, Rated, Date
   var allRows = ACHIEVER_ROWS.map(function(r) {
-    return [r.player_name, r.fide_id, r.status||'', r.tournament_name,
-            r.date, r.rank||'', r.rating_change!==null?r.rating_change:'',
-            r.type, r.is_rated?'RATED':''];
+    return [r.player_name, r.fide_id, r.tournament_name,
+            r.rank||'', r.rating_change!==null?r.rating_change:'',
+            r.is_rated?'RATED':'', r.date||''];
   });
-  var BATCH = 50;
+  var BATCH = 50, totalAdded = 0, batches = Math.ceil(allRows.length / BATCH), done = 0;
   function sendBatch(i) {
-    if (i >= allRows.length) return;
+    if (i >= allRows.length) {
+      setAchMsg('✓ Saved ' + totalAdded + ' new rows to sheet (' + allRows.length + ' total)', '#1e7a3e');
+      return;
+    }
     var chunk = allRows.slice(i, i + BATCH);
     var url = GAS_URL + '?action=write_achievements&rows=' + encodeURIComponent(JSON.stringify(chunk));
-    fetch(url).then(function(){ sendBatch(i + BATCH); }).catch(function(){});
+    fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) totalAdded += (d.added || 0);
+        done++;
+        setAchMsg('Saving… batch ' + done + '/' + batches, '#888');
+        sendBatch(i + BATCH);
+      })
+      .catch(function(){ sendBatch(i + BATCH); });
   }
   sendBatch(0);
 }
