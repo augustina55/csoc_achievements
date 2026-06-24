@@ -210,6 +210,13 @@ const html = `<!DOCTYPE html>
   .btn-preview { background: var(--surface2); color: var(--accent); border: 1px solid rgba(200,160,0,0.35); border-radius: 8px; padding: 10px 18px; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
   .btn-preview:hover { background: rgba(200,160,0,0.08); }
 
+  /* ── Status chips ── */
+  .status-chip { border-radius: 10px; padding: 2px 8px; font-size: 0.71rem; font-weight: 700; color: #fff; white-space: nowrap; }
+  .status-active   { background: #1e7a3e; }
+  .status-expired  { background: #999; }
+  .status-upcoming { background: #4dabf7; }
+  .status-pause    { background: #f7a440; }
+
   /* ── Scrollbars ── */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -236,6 +243,7 @@ const html = `<!DOCTYPE html>
 <div class="tabs">
   <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
   <div class="tab" onclick="switchTab('all')">All Achievements <span class="tab-badge" id="badge-all">—</span></div>
+  <div class="tab" onclick="switchTab('got')">🎖 Got Rating <span class="tab-badge" id="badge-got">—</span></div>
 </div>
 
 <!-- All Achievements -->
@@ -272,6 +280,25 @@ const html = `<!DOCTYPE html>
           <th>Rank</th><th>Rating ±</th><th>Type</th><th></th>
         </tr></thead>
         <tbody id="achievers-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Got Rating -->
+<div class="panel" id="panel-got">
+  <div class="achievers-panel">
+    <div class="achievers-header">
+      <span class="achievers-title">🎖 Got Rating</span>
+      <div id="got-rating-msg" style="font-size:0.82rem;color:#888;margin-left:auto">Click the tab to load ratings from FIDE API…</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Player</th><th>Status</th><th>FIDE ID</th>
+          <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th>
+        </tr></thead>
+        <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Not loaded yet — click the 🎖 Got Rating tab</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -967,11 +994,95 @@ function drawAndDownloadPoster() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
+  var names = ['achievers','all','got'];
   document.querySelectorAll('.tab').forEach(function(el, i) {
-    el.classList.toggle('active', (i===0) === (tab==='all'));
+    el.classList.toggle('active', names[i] === tab);
   });
-  document.getElementById('panel-all').classList.toggle('active', tab==='all');
   document.getElementById('panel-achievers').classList.toggle('active', tab==='achievers');
+  document.getElementById('panel-all').classList.toggle('active', tab==='all');
+  document.getElementById('panel-got').classList.toggle('active', tab==='got');
+  if (tab === 'got') loadGotRating();
+}
+
+// ── Got Rating ────────────────────────────────────────────────────────────────
+var gotRatingLoaded = false;
+
+function statusChip(s) {
+  var labels = {1:'Active',2:'Expired',3:'Upcoming',5:'Pause'};
+  var cls    = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
+  var n = Number(s);
+  return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(labels[n]||'Unknown')+'</span>';
+}
+
+function loadGotRating() {
+  if (gotRatingLoaded) return;
+  gotRatingLoaded = true;
+  var msg   = document.getElementById('got-rating-msg');
+  var tbody = document.getElementById('got-rating-tbody');
+  var players = DATA.filter(function(p){ return p.fide_id; });
+  var total = players.length, done = 0, results = [];
+  var LIMIT = 10, running = 0, queue = players.slice();
+
+  msg.textContent = 'Loading 0 / ' + total + '…';
+
+  function next() {
+    while (running < LIMIT && queue.length > 0) {
+      var p = queue.shift();
+      running++;
+      (function(player) {
+        fetch('https://api.chesstools.org/fide/player_history/?fide_id=' + player.fide_id)
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(hist) {
+            done++; running--;
+            if (hist && hist.length > 0) {
+              var cur  = hist[0], prev = hist[1] || {};
+              var std  = cur.classical_rating || 0;
+              var rap  = cur.rapid_rating || 0;
+              var bli  = cur.blitz_rating || 0;
+              var gStd = !(prev.classical_rating) && std > 0;
+              var gRap = !(prev.rapid_rating)      && rap > 0;
+              var gBli = !(prev.blitz_rating)      && bli > 0;
+              if (gStd || gRap || gBli) {
+                results.push({ player:player, std:std, rap:rap, bli:bli,
+                  gStd:gStd, gRap:gRap, gBli:gBli, period:cur.period });
+              }
+            }
+            msg.textContent = done < total ? ('Loading ' + done + ' / ' + total + '…')
+              : (results.length + ' players got new FIDE rating this period');
+            if (done === total) document.getElementById('badge-got').textContent = results.length;
+            renderGotRating(results, tbody);
+            next();
+          })
+          .catch(function(){ done++; running--; next(); });
+      })(p);
+    }
+  }
+  next();
+}
+
+function renderGotRating(results, tbody) {
+  if (!tbody) return;
+  if (results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr>';
+    return;
+  }
+  function cell(val, isNew) {
+    if (!val) return '<span class="na">—</span>';
+    return isNew ? '<b style="color:var(--accent)">'+val+'</b>' : val;
+  }
+  tbody.innerHTML = results.map(function(r, i) {
+    var p = r.player;
+    return '<tr>' +
+      '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
+      '<td style="font-weight:600">'+(p.cr_name||p.player_name)+'</td>' +
+      '<td>'+statusChip(p.status)+'</td>' +
+      '<td style="color:var(--text2)">'+(p.fide_id||'—')+'</td>' +
+      '<td>'+cell(r.std,r.gStd)+'</td>' +
+      '<td>'+cell(r.rap,r.gRap)+'</td>' +
+      '<td>'+cell(r.bli,r.gBli)+'</td>' +
+      '<td style="color:var(--text2)">'+(r.period||'—')+'</td>' +
+      '</tr>';
+  }).join('');
 }
 </script>
 </body>
