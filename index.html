@@ -997,16 +997,22 @@ function saveGotRatingToSheet(results, month) {
     .catch(function(){});
 }
 
-// ── Save Achievements to Sheet (called at page load if GAS_URL set) ───────────
+// ── Save Achievements to Sheet in batches (called at page load if GAS_URL set) ─
 function saveAchievementsToSheet() {
   if (!GAS_URL) return;
-  var rows = ACHIEVER_ROWS.map(function(r) {
+  var allRows = ACHIEVER_ROWS.map(function(r) {
     return [r.player_name, r.fide_id, r.status||'', r.tournament_name,
             r.date, r.rank||'', r.rating_change!==null?r.rating_change:'',
             r.type, r.is_rated?'RATED':''];
   });
-  var url = GAS_URL + '?action=write_achievements&rows=' + encodeURIComponent(JSON.stringify(rows));
-  fetch(url).catch(function(){});
+  var BATCH = 50;
+  function sendBatch(i) {
+    if (i >= allRows.length) return;
+    var chunk = allRows.slice(i, i + BATCH);
+    var url = GAS_URL + '?action=write_achievements&rows=' + encodeURIComponent(JSON.stringify(chunk));
+    fetch(url).then(function(){ sendBatch(i + BATCH); }).catch(function(){});
+  }
+  sendBatch(0);
 }
 if (GAS_URL) saveAchievementsToSheet();
 
