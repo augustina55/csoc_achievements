@@ -27,11 +27,25 @@ function get(url, timeout = 20000) {
   });
 }
 
-// ── Parse art=0 starting list to get SNR + player name ───────────────────────
+// ── Parse art=0 starting list to get SNR + player name + tournament full name ─
 async function getSnrAndName(tournId, fideId) {
   const url = `${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0`;
   const r = await get(url);
-  if (r.status !== 200) return { snr: null, cr_name: null };
+  if (r.status !== 200) return { snr: null, cr_name: null, tournament_name_full: null };
+
+  // Extract full tournament name from page title: "Chess-Results.com - NAME - Starting Rank"
+  let tournament_name_full = null;
+  const titleM = r.text.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleM) {
+    const parts = titleM[1].split(/\s*-\s*/);
+    // parts[0] = "Chess-Results.com", parts[1..n-1] = tournament name, parts[n] = "Starting Rank" / "Cross Table" etc
+    if (parts.length >= 3) {
+      tournament_name_full = parts.slice(1, -1).join(' - ').trim();
+    } else if (parts.length === 2) {
+      tournament_name_full = parts[1].trim();
+    }
+    if (tournament_name_full && tournament_name_full.length < 4) tournament_name_full = null;
+  }
 
   const fideStr = String(fideId);
   for (const trm of r.text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
@@ -40,14 +54,12 @@ async function getSnrAndName(tournId, fideId) {
     const cells = [...trm[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
       .map(m => m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim());
     const snr = snrHref ? snrHref[1] : (cells[0] && /^\d+$/.test(cells[0]) ? cells[0] : null);
-    // Name is typically cells[2] (snr, title, name, fide_id, fed, rating)
-    // Find first cell with ≥3 chars, contains letters, not pure number, not 3-letter code
     const cr_name = cells.slice(1).find(c =>
       c.length >= 3 && /[A-Za-z]{3}/.test(c) && !/^\d+$/.test(c) && !/^[A-Z]{2,3}$/.test(c)
     ) || null;
-    return { snr, cr_name };
+    return { snr, cr_name, tournament_name_full };
   }
-  return { snr: null, cr_name: null };
+  return { snr: null, cr_name: null, tournament_name_full };
 }
 
 // ── Determine player_link from SNR ──────────────────────────────────────────
@@ -84,13 +96,13 @@ function parsePlayerPage(html) {
 
 async function getRatingInfo(tournId, fideId) {
   try {
-    const { snr, cr_name } = await getSnrAndName(tournId, fideId);
+    const { snr, cr_name, tournament_name_full } = await getSnrAndName(tournId, fideId);
     const link = playerLink(tournId, snr);
-    if (!snr) return { player_link: link, cr_name };
+    if (!snr) return { player_link: link, cr_name, tournament_name_full };
     await sleep(150);
     const r = await get(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=9&snr=${snr}`);
-    if (r.status !== 200) return { player_link: link, cr_name };
-    return { ...parsePlayerPage(r.text), snr, player_link: link, cr_name };
+    if (r.status !== 200) return { player_link: link, cr_name, tournament_name_full };
+    return { ...parsePlayerPage(r.text), snr, player_link: link, cr_name, tournament_name_full };
   } catch (_) {
     return {};
   }
@@ -131,10 +143,8 @@ async function main() {
     const info = await getRatingInfo(t.tournament_id, fide_id);
     // Merge into data
     Object.assign(data[pi].tournaments[ti], info);
-    // Store cr_name at player level (overwrite to allow corrections on re-runs)
-    if (info.cr_name) {
-      data[pi].cr_name = info.cr_name;
-    }
+    if (info.cr_name) data[pi].cr_name = info.cr_name;
+    if (info.tournament_name_full) data[pi].tournaments[ti].tournament_name_full = info.tournament_name_full;
     done++;
     if (done % 30 === 0) process.stdout.write(`  ${done}/${tasks.length}\n`);
   }, CONCURRENCY);

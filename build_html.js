@@ -29,7 +29,7 @@ data.forEach(p => {
       achieverRows.push({
         player_name:     p.cr_name || p.player_name,
         fide_id:         p.fide_id,
-        tournament_name: t.tournament_name,
+        tournament_name: t.tournament_name_full || t.tournament_name,
         player_link:     t.player_link || t.tournament_link || '',
         date:            t.date || '',
         rank:            rank != null ? rank : null,
@@ -356,9 +356,10 @@ function tournamentRows(tournaments) {
   return tournaments.map(function(t) {
     var rank = t.rank_from_page || t.rank;
     var pts  = t.points !== null && t.points !== undefined ? t.points : '—';
-    var tn   = t.tournament_name.length > 32 ? t.tournament_name.slice(0,32)+'…' : t.tournament_name;
+    var tfull = t.tournament_name_full || t.tournament_name;
+    var tn   = tfull.length > 36 ? tfull.slice(0,36)+'…' : tfull;
     return \`<tr>
-      <td><a href="\${t.tournament_link||'#'}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" title="\${t.tournament_name}">\${tn}</a></td>
+      <td><a href="\${t.tournament_link||'#'}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" title="\${tfull}">\${tn}</a></td>
       <td style="white-space:nowrap">\${fmtDate(t.date)}</td>
       <td>\${rankChip(rank)}</td>
       <td>\${pts !== '—' ? pts : '<span class="na">—</span>'}</td>
@@ -579,7 +580,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
     +'  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;'
     +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
-    +'  -webkit-text-stroke:5px #ffffff; letter-spacing:2px; white-space:nowrap; z-index:5; }'
+    +'  -webkit-text-stroke:5px #ffffff; letter-spacing:0; white-space:nowrap; z-index:5; }'
     +'.grid-panel { position:absolute; left:233px; top:55px; width:307px; height:590px;'
     +'  background:#fff; z-index:2; border:1.5px solid #c0c0c0;'
     +'  box-shadow:-5px 0 16px rgba(0,0,0,.13),5px 5px 16px rgba(0,0,0,.09); }'
@@ -621,7 +622,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  ctx.lineTo(sx+sr,sy+sh);ctx.quadraticCurveTo(sx,sy+sh,sx,sy+sh-sr);',
     '  ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);',
     '  ctx.closePath();ctx.fillStyle=ST;ctx.fill();',
-    '  var cx2=sx+sw-50,em=105,ls=2,chs=["P","M","A","H","C"];',
+    '  var cx2=sx+sw-50,em=105,ls=0,chs=["P","M","A","H","C"];',
     '  ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";',
     '  ctx.lineWidth=5;ctx.textAlign="center";ctx.textBaseline="middle";',
     '  for(var ci=0;ci<chs.length;ci++){',
