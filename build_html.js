@@ -228,10 +228,8 @@ const html = `<!DOCTYPE html>
 
 <header>
   <div class="header-title">
-    <img class="header-logo" src="${LOGO_B64}" alt="CircleChess">
     <div>
       <h1>CSOC <span>Achievements</span></h1>
-      <div style="font-size:0.77rem;color:#888;margin-top:2px">June 2026 · CircleChess Academy</div>
     </div>
   </div>
   <div class="header-meta">
@@ -341,10 +339,10 @@ const CHESS_B64     = ${CHESS_JSON};
 
 // Stats
 const totalTournaments = DATA.reduce(function(s,p){ return s + p.tournaments.length; }, 0);
-document.getElementById('stat-players').textContent    = DATA.length;
-document.getElementById('stat-tournaments').textContent = totalTournaments;
-document.getElementById('stat-achievers').textContent  = ${uniqueAchievers};
-document.getElementById('badge-achievers').textContent = ACHIEVER_ROWS.length;
+var _sp = document.getElementById('stat-players');    if(_sp) _sp.textContent = DATA.length;
+var _st = document.getElementById('stat-tournaments'); if(_st) _st.textContent = totalTournaments;
+var _sa = document.getElementById('stat-achievers');   if(_sa) _sa.textContent = ${uniqueAchievers};
+var _ba = document.getElementById('badge-achievers');  if(_ba) _ba.textContent = ACHIEVER_ROWS.length;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function isRated(name) {
