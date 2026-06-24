@@ -172,24 +172,7 @@
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
-  <div class="tab" onclick="switchTab('all')">All Achievements <span class="tab-badge" id="badge-all">—</span></div>
   <div class="tab" onclick="switchTab('got')">🎖 Got Rating <span class="tab-badge" id="badge-got">—</span></div>
-</div>
-
-<!-- All Achievements -->
-<div class="panel" id="panel-all">
-  <div class="sidebar">
-    <div class="sidebar-search">
-      <input id="search-input" type="text" placeholder="Search player…" oninput="filterPlayers(this.value)">
-    </div>
-    <div class="player-list" id="player-list"></div>
-  </div>
-  <div class="main" id="main-content">
-    <div class="placeholder">
-      <div class="placeholder-icon">♟</div>
-      <p>Select a player to view their June 2026 results</p>
-    </div>
-  </div>
 </div>
 
 <!-- Achievers -->
@@ -199,7 +182,6 @@
       <span class="achievers-title">★ Achievers</span>
       <div class="filter-row">
         <button class="filter-btn active" id="fbtn-all"   onclick="setFilter('all')">All</button>
-        <button class="filter-btn"        id="fbtn-rank"  onclick="setFilter('rank')">Top 9</button>
         <button class="filter-btn"        id="fbtn-rated" onclick="setFilter('rated')">FIDE / Rated</button>
       </div>
     </div>
@@ -231,7 +213,7 @@
       <table>
         <thead><tr>
           <th>#</th><th>Player</th><th>Status</th><th>FIDE ID</th>
-          <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th>
+          <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th><th></th>
         </tr></thead>
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
       </table>
@@ -312,17 +294,6 @@ function cleanTournName(name) {
   return s;
 }
 
-function isAchiever(p) {
-  return p.tournaments.some(function(t) {
-    var r = t.rank_from_page || t.rank;
-    return (r && r < 10) || (isRated(t.tournament_name) && t.rating_change != null && t.rating_change >= 30);
-  });
-}
-
-function initials(name) {
-  return name.split(/[ ,]+/).filter(Boolean).slice(0,2).map(function(w){ return w[0].toUpperCase(); }).join('');
-}
-
 function rankChip(rank) {
   if (!rank || rank >= 9999) return '<span class="na">—</span>';
   if (rank <= 3) return `<span class="rank-chip rank-top3">#${rank}</span>`;
@@ -338,92 +309,6 @@ function ratingChange(rc) {
 }
 
 function fmtDate(d) { return d ? d.replace(/\//g, '-') : '—'; }
-
-function tournamentRows(tournaments) {
-  return tournaments.map(function(t) {
-    var rank = t.rank_from_page || t.rank;
-    var pts  = t.points !== null && t.points !== undefined ? t.points : '—';
-    var tfull = cleanTournName(t.tournament_name_full || t.tournament_name);
-    var tn   = tfull.length > 36 ? tfull.slice(0,36)+'…' : tfull;
-    return `<tr>
-      <td><a href="${t.tournament_link||'#'}" target="_blank" style="color:var(--text);text-decoration:none;font-weight:500" title="${tfull}">${tn}</a></td>
-      <td style="white-space:nowrap">${fmtDate(t.date)}</td>
-      <td>${rankChip(rank)}</td>
-      <td>${pts !== '—' ? pts : '<span class="na">—</span>'}</td>
-      <td>${t.rating_before ? t.rating_before : '<span class="na">—</span>'}</td>
-      <td>${ratingChange(t.rating_change)}</td>
-      <td>${t.perf_rating ? t.perf_rating : '<span class="na">—</span>'}</td>
-      <td>${t.rounds||'—'}</td>
-      <td>${t.players||'—'}</td>
-      <td><a class="btn-view" href="${t.player_link||t.tournament_link||'#'}" target="_blank">View →</a></td>
-    </tr>`;
-  }).join('');
-}
-
-// ── Player list ───────────────────────────────────────────────────────────────
-function buildPlayerList(players) {
-  document.getElementById('player-list').innerHTML = players.map(function(p) {
-    var ach = isAchiever(p);
-    return `<div class="player-item${ach?' has-achievement':''}" onclick="selectPlayer('${p.fide_id}')" id="pitem-${p.fide_id}">
-      <span class="player-name-text" title="${p.player_name}">${p.player_name}</span>
-      <span class="player-count">${p.tournaments.length}</span>
-    </div>`;
-  }).join('');
-}
-buildPlayerList(DATA);
-
-function filterPlayers(q) {
-  q = q.toLowerCase();
-  document.querySelectorAll('.player-item').forEach(function(el) {
-    el.style.display = el.querySelector('.player-name-text').textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-
-function selectPlayer(fideId) {
-  var player = DATA.find(function(p){ return String(p.fide_id) === String(fideId); });
-  if (!player) return;
-  document.querySelectorAll('.player-item').forEach(function(el){ el.classList.remove('active'); });
-  var item = document.getElementById('pitem-' + fideId);
-  if (item) item.classList.add('active');
-
-  var bestRank = Math.min.apply(null, player.tournaments.map(function(t){ return t.rank_from_page||t.rank||9999; }));
-  var bestGain = player.tournaments.reduce(function(mx,t){
-    return t.rating_change!=null && t.rating_change > mx ? t.rating_change : mx;
-  }, -999);
-  var valid  = player.tournaments.filter(function(t){ return t.points!=null; });
-  var avgPts = valid.length ? (valid.reduce(function(s,t){ return s+t.points; },0)/valid.length).toFixed(1) : null;
-
-  document.getElementById('main-content').innerHTML = `
-    <div class="player-header">
-      <div class="player-avatar">${initials(player.player_name)}</div>
-      <div class="player-info-block">
-        <h2>${player.player_name}</h2>
-        <p>FIDE ${player.fide_id} &nbsp;·&nbsp; ${player.tournaments.length} tournament${player.tournaments.length!==1?'s':''} in June 2026</p>
-      </div>
-    </div>
-    <div class="player-stats">
-      <div class="stat-card${bestRank<9999?' gold-border':''}">
-        <div class="stat-val">${bestRank<9999?'#'+bestRank:'—'}</div>
-        <div class="stat-lbl">Best Rank</div>
-      </div>
-      <div class="stat-card${bestGain>=30?' green-border':''}">
-        <div class="stat-val">${bestGain>-999?(bestGain>=0?'+':'')+bestGain:'—'}</div>
-        <div class="stat-lbl">Best Rating Gain</div>
-      </div>
-      ${avgPts?'<div class="stat-card"><div class="stat-val">'+avgPts+'</div><div class="stat-lbl">Avg Points</div></div>':''}
-      <div class="stat-card"><div class="stat-val">${player.tournaments.length}</div><div class="stat-lbl">Tournaments</div></div>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>Tournament</th><th>Date</th><th>Rank</th><th>Points</th>
-          <th>Rating</th><th>FIDE ±</th><th>Perf</th><th>Rounds</th><th>Players</th><th></th>
-        </tr></thead>
-        <tbody>${tournamentRows(player.tournaments)}</tbody>
-      </table>
-    </div>
-  `;
-}
 
 // ── Achievers table ───────────────────────────────────────────────────────────
 var currentFilter = 'all';
@@ -496,6 +381,7 @@ function rankToOrdinal(n) {
 }
 
 function buildAchText(r) {
+  if (r.pos_override) return r.pos_override;
   if (r.rank != null && r.rank < 10) {
     var pos = 'Secured ' + rankToOrdinal(r.rank);
     if (r.is_rated && r.rating_change != null && r.rating_change >= 30)
@@ -503,6 +389,37 @@ function buildAchText(r) {
     return pos;
   }
   return '+' + r.rating_change + ' Rating Points';
+}
+
+var MONTH_NAMES = {Jan:'January',Feb:'February',Mar:'March',Apr:'April',May:'May',Jun:'June',
+  Jul:'July',Aug:'August',Sep:'September',Oct:'October',Nov:'November',Dec:'December'};
+function fmtMonth(period) {
+  var p = (period||'').split('-');
+  return p.length === 2 ? (MONTH_NAMES[p[1]]||p[1]) + ' ' + p[0] : period;
+}
+
+var gotRatingResults = [];
+
+function openGotRatingPoster(idx) {
+  var r = gotRatingResults[idx];
+  if (!r) return;
+  var p = r.player;
+  var name = p.cr_name || p.player_name;
+  var parts = [];
+  if (r.gStd && r.std) parts.push('Classical ' + r.std);
+  if (r.gRap && r.rap) parts.push('Rapid ' + r.rap);
+  if (r.gBli && r.bli) parts.push('Blitz ' + r.bli);
+  var ratingStr    = parts.join(' · ') || 'FIDE Rating';
+  var primaryType  = r.gStd ? 'Classical' : (r.gRap ? 'Rapid' : 'Blitz');
+  var achieveText  = 'Achieved International ' + primaryType + ' FIDE Rating in ' + fmtMonth(r.period);
+  currentRow = { player_name: name, tournament_name: achieveText, pos_override: ratingStr };
+  document.getElementById('modal-player').value            = name;
+  document.getElementById('modal-achievement').textContent = ratingStr;
+  document.getElementById('modal-tournament').value        = achieveText;
+  document.getElementById('photo-preview').style.display   = 'none';
+  document.getElementById('upload-hint').innerHTML         = '<strong>Click to upload</strong> a player photo';
+  document.getElementById('photo-input').value             = '';
+  document.getElementById('poster-modal').classList.add('open');
 }
 
 function openPosterModal(idx) {
@@ -930,12 +847,11 @@ function drawAndDownloadPoster() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  var names = ['achievers','all','got'];
+  var names = ['achievers','got'];
   document.querySelectorAll('.tab').forEach(function(el, i) {
     el.classList.toggle('active', names[i] === tab);
   });
   document.getElementById('panel-achievers').classList.toggle('active', tab==='achievers');
-  document.getElementById('panel-all').classList.toggle('active', tab==='all');
   document.getElementById('panel-got').classList.toggle('active', tab==='got');
   if (tab === 'got') loadGotRating();
 }
@@ -1100,8 +1016,9 @@ if (GAS_URL) saveAchievementsToSheet();
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderGotRating(results, tbody) {
   if (!tbody) return;
+  gotRatingResults = results;
   if (results.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
     return;
   }
   function cell(val, isNew) {
@@ -1119,6 +1036,7 @@ function renderGotRating(results, tbody) {
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
       '<td>'+cell(r.bli,r.gBli)+'</td>' +
       '<td style="color:var(--text2)">'+(r.period||'—')+'</td>' +
+      '<td><button class="btn-poster" onclick="openGotRatingPoster('+i+')">🖼 Poster</button></td>' +
       '</tr>';
   }).join('');
 }
