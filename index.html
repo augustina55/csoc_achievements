@@ -509,7 +509,9 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
-    +'.caissa-img { position:absolute; top:290px; left:11px; width:285px; height:40px; object-fit:contain; z-index:3; }';
+    +'.caissa-box { position:absolute; top:290px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:11px; font-weight:700; color:#0a1825; white-space:nowrap; z-index:3; }'
+    +'.caissa-logo { width:28px; height:26px; object-fit:contain; flex-shrink:0; }'
+    +'.c-red { color:#b83030; }';
 
   /* ── popup canvas script (all double-quoted JS, no single-quote conflicts) ── */
   var sc = [
@@ -560,9 +562,26 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  wT(ctx,tt,cxP,321,pw-28,20);',
     '  ctx.fillStyle="#bbb";ctx.font="10px Arial,sans-serif";ctx.textAlign="right";',
     '  ctx.fillText("learn.circlechess.com",px+pw-10,635);',
+    '  var bx2=px+12,bT2=py+290,bW2=pw-24,bH2=44,bR2=10;',
+    '  ctx.save();ctx.shadowColor="transparent";ctx.shadowBlur=0;',
+    '  ctx.fillStyle="#fff";ctx.strokeStyle="#2196F3";ctx.lineWidth=2;',
+    '  ctx.beginPath();ctx.moveTo(bx2+bR2,bT2);ctx.lineTo(bx2+bW2-bR2,bT2);',
+    '  ctx.quadraticCurveTo(bx2+bW2,bT2,bx2+bW2,bT2+bR2);ctx.lineTo(bx2+bW2,bT2+bH2-bR2);',
+    '  ctx.quadraticCurveTo(bx2+bW2,bT2+bH2,bx2+bW2-bR2,bT2+bH2);ctx.lineTo(bx2+bR2,bT2+bH2);',
+    '  ctx.quadraticCurveTo(bx2,bT2+bH2,bx2,bT2+bH2-bR2);ctx.lineTo(bx2,bT2+bR2);',
+    '  ctx.quadraticCurveTo(bx2,bT2,bx2+bR2,bT2);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();',
+    '  var bcy2=bT2+bH2/2;ctx.font="bold 11px Arial,sans-serif";ctx.textBaseline="middle";',
+    '  var sx1="Proud ",sx2="Caissa School Of Chess",sx3=" Student";',
+    '  var sw1=ctx.measureText(sx1).width,sw2=ctx.measureText(sx2).width,sw3=ctx.measureText(sx3).width;',
+    '  var ciW=28,ciG=6,ctW=ciW+ciG+sw1+sw2+sw3;',
+    '  var csX=Math.round(bx2+(bW2-ctW)/2);',
+    '  var ctxS=csX+ciW+ciG;ctx.textAlign="left";',
+    '  ctx.fillStyle="#0a1825";ctx.fillText(sx1,ctxS,bcy2);',
+    '  ctx.fillStyle="#b83030";ctx.fillText(sx2,ctxS+sw1,bcy2);',
+    '  ctx.fillStyle="#0a1825";ctx.fillText(sx3,ctxS+sw1+sw2,bcy2);',
     '  var md=document.querySelector(".medal");',
     '  var ch=document.querySelector(".chess");',
-    '  var cs=document.querySelector(".caissa-img");',
+    '  var cs=document.querySelector(".caissa-logo");',
     '  var lg=document.querySelector(".logo-area img");',
     '  var pf=document.querySelector(".profile img");',
     '  var tot=5,dn=0;',
@@ -573,7 +592,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  function dc(img,cx2,cy2,cr){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i2,cx2-cr,cy2-cr,cr*2,cr*2);ctx.restore();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.strokeStyle=ST;ctx.lineWidth=4;ctx.stroke();od();};i2.onerror=od;i2.src=img.src;}',
     '  di(md,-50,-35,200,313);',
     '  di(ch,325,518,260,255);',
-    '  di(cs,px+Math.round((pw-43)/2),py+292,43,40);',
+    '  di(cs,csX,Math.round(bT2+(bH2-26)/2),28,26);',
     '  di(lg,px+(pw-160)/2,py+10,160,80);',
     '  dc(pf,153,575,105);',
     '}'
@@ -598,7 +617,10 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'    <div class="ach-pos">'+escHtml(posText)+'</div>'
     +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
     
-    +'    <img class="caissa-img" src="'+CSOC_B64+'" alt="">'
+    +'    <div class="caissa-box">'
+    +'      <img class="caissa-logo" src="'+CSOC_B64+'" alt="">'
+    +'      Proud <span class="c-red">Caissa School Of Chess</span> Student'
+    +'    </div>'
     +'  </div>'
     +(photoUri ? '  <div class="profile"><img src="'+photoUri+'" alt=""></div>' : '')
     +'  <img class="chess" src="'+CHESS_B64+'" alt="">'
@@ -842,9 +864,37 @@ function drawAndDownloadPoster() {
   chessImg.onerror = onDone;
   chessImg.src = CHESS_B64;
 
+  // Caissa box: border + text + image
+  var cbx = px + 12, cbT = py + 290, cbW = pw - 24, cbH = 44, cbR = 10;
+  ctx.save();
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2196F3'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cbx + cbR, cbT); ctx.lineTo(cbx + cbW - cbR, cbT);
+  ctx.quadraticCurveTo(cbx + cbW, cbT, cbx + cbW, cbT + cbR);
+  ctx.lineTo(cbx + cbW, cbT + cbH - cbR);
+  ctx.quadraticCurveTo(cbx + cbW, cbT + cbH, cbx + cbW - cbR, cbT + cbH);
+  ctx.lineTo(cbx + cbR, cbT + cbH);
+  ctx.quadraticCurveTo(cbx, cbT + cbH, cbx, cbT + cbH - cbR);
+  ctx.lineTo(cbx, cbT + cbR);
+  ctx.quadraticCurveTo(cbx, cbT, cbx + cbR, cbT);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  var cbcy = cbT + cbH / 2;
+  ctx.font = 'bold 11px Arial, sans-serif'; ctx.textBaseline = 'middle';
+  var cs1 = 'Proud ', cs2 = 'Caissa School Of Chess', cs3 = ' Student';
+  var csW1 = ctx.measureText(cs1).width, csW2 = ctx.measureText(cs2).width, csW3 = ctx.measureText(cs3).width;
+  var cImgW = 28, cGap = 6, cTotW = cImgW + cGap + csW1 + csW2 + csW3;
+  var cImgX = Math.round(cbx + (cbW - cTotW) / 2);
+  var cTxtX = cImgX + cImgW + cGap;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#0a1825'; ctx.fillText(cs1, cTxtX, cbcy);
+  ctx.fillStyle = '#b83030'; ctx.fillText(cs2, cTxtX + csW1, cbcy);
+  ctx.fillStyle = '#0a1825'; ctx.fillText(cs3, cTxtX + csW1 + csW2, cbcy);
+
   var csocImg = new Image();
   csocImg.onload = function() {
-    ctx.drawImage(csocImg, px + Math.floor((pw - 43) / 2), py + 292, 43, 40);
+    ctx.drawImage(csocImg, cImgX, Math.round(cbT + (cbH - 26) / 2), 28, 26);
     onDone();
   };
   csocImg.onerror = onDone;
