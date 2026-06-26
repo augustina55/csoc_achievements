@@ -509,7 +509,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
-    +'.caissa-img { position:absolute; right:-10px; bottom:145px; width:290px; z-index:11; }';
+    +'.caissa-img { position:absolute; right:10px; bottom:150px; width:20px; height:20px; z-index:11; }';
 
   /* ── popup canvas script (all double-quoted JS, no single-quote conflicts) ── */
   var sc = [
@@ -573,7 +573,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  function dc(img,cx2,cy2,cr){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i2,cx2-cr,cy2-cr,cr*2,cr*2);ctx.restore();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.strokeStyle=ST;ctx.lineWidth=4;ctx.stroke();od();};i2.onerror=od;i2.src=img.src;}',
     '  di(md,-50,-35,200,313);',
     '  di(ch,310,530,260,230);',
-    '  di(cs,300,490,290,75);',
+    '  di(cs,W-30,H-150,20,20);',
     '  di(lg,px+(pw-160)/2,py+10,160,80);',
     '  dc(pf,153,575,105);',
     '}'
@@ -844,7 +844,7 @@ function drawAndDownloadPoster() {
 
   var csocImg = new Image();
   csocImg.onload = function() {
-    ctx.drawImage(csocImg, W - 295, H - 218, 290, 75);
+    ctx.drawImage(csocImg, W - 30, H - 150, 20, 20);
     onDone();
   };
   csocImg.onerror = onDone;
