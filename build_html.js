@@ -571,7 +571,14 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'.profile { position:absolute; left:48px; bottom:20px; width:210px; height:210px;'
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
-    +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }';
+    +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
++'.dash-divider { position:absolute; top:310px; left:14px; right:14px;'
++'  border:none; border-top:2px dashed #b0cad8; }'
++'.caissa-box { position:absolute; top:326px; left:14px; right:14px;'
++'  border:2px solid #2196F3; border-radius:12px; background:white;'
++'  padding:10px 12px; display:flex; align-items:center; justify-content:center;'
++'  gap:8px; font-size:11.5px; font-weight:700; color:#0a1825; white-space:nowrap; }'
++'.caissa-red { color:#b83030; }';
 
   /* ── popup canvas script (all double-quoted JS, no single-quote conflicts) ── */
   var sc = [
@@ -621,6 +628,30 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  wT(ctx,tt,cxP,321,pw-28,20);',
     '  ctx.fillStyle="#bbb";ctx.font="10px Arial,sans-serif";ctx.textAlign="right";',
     '  ctx.fillText("learn.circlechess.com",px+pw-10,635);',
+    '  ctx.save();ctx.setLineDash([6,4]);ctx.strokeStyle="#b0c8d4";ctx.lineWidth=1.5;',
+    '  ctx.beginPath();ctx.moveTo(px+14,py+310);ctx.lineTo(px+pw-14,py+310);ctx.stroke();ctx.restore();',
+    '  var bx2=px+12,bT=py+326,bBW=pw-24,bBH=44,bRad=10;',
+    '  ctx.save();ctx.shadowColor="transparent";ctx.shadowBlur=0;',
+    '  ctx.fillStyle="#fff";ctx.strokeStyle="#2196F3";ctx.lineWidth=2;',
+    '  ctx.beginPath();ctx.moveTo(bx2+bRad,bT);ctx.lineTo(bx2+bBW-bRad,bT);',
+    '  ctx.quadraticCurveTo(bx2+bBW,bT,bx2+bBW,bT+bRad);ctx.lineTo(bx2+bBW,bT+bBH-bRad);',
+    '  ctx.quadraticCurveTo(bx2+bBW,bT+bBH,bx2+bBW-bRad,bT+bBH);ctx.lineTo(bx2+bRad,bT+bBH);',
+    '  ctx.quadraticCurveTo(bx2,bT+bBH,bx2,bT+bBH-bRad);ctx.lineTo(bx2,bT+bRad);',
+    '  ctx.quadraticCurveTo(bx2,bT,bx2+bRad,bT);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();',
+    '  var bcy=bT+bBH/2;ctx.font="bold 12px Arial,sans-serif";ctx.textBaseline="middle";',
+    '  var s1="Proud ",s2="Caissa School Of Chess",s3=" Student";',
+    '  var sW1=ctx.measureText(s1).width,sW2=ctx.measureText(s2).width,sW3=ctx.measureText(s3).width;',
+    '  var icW=22,icG=7,totW=icW+icG+sW1+sW2+sW3,txS=bx2+(bBW-totW)/2;',
+    '  var iconX=txS,iTop=bcy-11;',
+    '  ctx.fillStyle="#1565C0";ctx.fillRect(iconX+1,iTop+5,18,10);',
+    '  ctx.fillStyle="#42A5F5";ctx.fillRect(iconX+1,iTop+5,18,5);',
+    '  ctx.fillStyle="#0D47A1";ctx.fillRect(iconX-1,iTop+3,22,4);',
+    '  ctx.beginPath();ctx.moveTo(iconX+11,iTop-4);ctx.lineTo(iconX-1,iTop+3);ctx.lineTo(iconX+23,iTop+3);ctx.closePath();ctx.fill();',
+    '  ctx.fillStyle="#FFC107";ctx.beginPath();ctx.arc(iconX+20,iTop-2,3,0,Math.PI*2);ctx.fill();',
+    '  txS+=icW+icG;ctx.textAlign="left";',
+    '  ctx.fillStyle="#0a1825";ctx.fillText(s1,txS,bcy);',
+    '  ctx.fillStyle="#b83030";ctx.fillText(s2,txS+sW1,bcy);',
+    '  ctx.fillStyle="#0a1825";ctx.fillText(s3,txS+sW1+sW2,bcy);',
     '  var md=document.querySelector(".medal");',
     '  var ch=document.querySelector(".chess");',
     '  var lg=document.querySelector(".logo-area img");',
@@ -656,6 +687,19 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'    <div class="divider"></div>'
     +'    <div class="ach-pos">'+escHtml(posText)+'</div>'
     +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
+    +'    <hr class="dash-divider">'
+    +'    <div class="caissa-box">'
+    +'      <svg width="20" height="20" viewBox="0 0 46 46" xmlns="http://www.w3.org/2000/svg">'
+    +'        <rect x="7" y="12" width="32" height="30" rx="3" fill="#1565C0"/>'
+    +'        <rect x="7" y="12" width="32" height="15" rx="3" fill="#42A5F5"/>'
+    +'        <rect x="7" y="26" width="32" height="2" fill="rgba(0,0,0,0.2)"/>'
+    +'        <rect x="2" y="10" width="42" height="5" rx="2.5" fill="#0D47A1"/>'
+    +'        <polygon points="23,0 2,12 44,12" fill="#0D47A1"/>'
+    +'        <line x1="37" y1="10" x2="42" y2="4" stroke="#0D47A1" stroke-width="2.5"/>'
+    +'        <circle cx="43" cy="3" r="3" fill="#FFC107"/>'
+    +'      </svg>'
+    +'      Proud <span class="caissa-red">Caissa School Of Chess</span> Student'
+    +'    </div>'
     +'  </div>'
     +(photoUri ? '  <div class="profile"><img src="'+photoUri+'" alt=""></div>' : '')
     +'  <img class="chess" src="'+CHESS_B64+'" alt="">'
