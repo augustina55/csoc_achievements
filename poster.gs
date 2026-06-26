@@ -277,6 +277,33 @@ body {
   object-fit: cover;
   display: block;
 }
+.dash-divider {
+  position: absolute;
+  top: 395px;
+  left: 16px;
+  right: 16px;
+  border: none;
+  border-top: 2px dashed #b0cad8;
+}
+.caissa-box {
+  position: absolute;
+  top: 412px;
+  left: 14px;
+  right: 14px;
+  border: 2px solid #2196F3;
+  border-radius: 12px;
+  background: white;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #0a1825;
+  white-space: nowrap;
+}
+.caissa-red { color: #b83030; }
 </style>
 </head>
 <body>
@@ -296,6 +323,19 @@ body {
     <div class="divider-solid"></div>
     <div class="achievements">${esc(achievements)}</div>
     <div class="rank-text">${esc(rank)}</div>
+    <hr class="dash-divider">
+    <div class="caissa-box">
+      <svg width="20" height="20" viewBox="0 0 46 46" xmlns="http://www.w3.org/2000/svg">
+        <rect x="7" y="12" width="32" height="30" rx="3" fill="#1565C0"/>
+        <rect x="7" y="12" width="32" height="15" rx="3" fill="#42A5F5"/>
+        <rect x="7" y="26" width="32" height="2" fill="rgba(0,0,0,0.2)"/>
+        <rect x="2" y="10" width="42" height="5" rx="2.5" fill="#0D47A1"/>
+        <polygon points="23,0 2,12 44,12" fill="#0D47A1"/>
+        <line x1="37" y1="10" x2="42" y2="4" stroke="#0D47A1" stroke-width="2.5"/>
+        <circle cx="43" cy="3" r="3" fill="#FFC107"/>
+      </svg>
+      Proud <span class="caissa-red">Caissa School Of Chess</span> Student
+    </div>
   </div>
 
   ${photo ? `<div class="profile"><img src="${photo}"></div>` : ''}

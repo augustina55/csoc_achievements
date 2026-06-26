@@ -852,6 +852,73 @@ function drawAndDownloadPoster() {
   ctx.textAlign = 'right';
   ctx.fillText('learn.circlechess.com', px + pw - 10, py + ph - 10);
 
+  // 6b. Dashed divider before student box
+  ctx.save();
+  ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = '#b0c8d4';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(px + 14, py + 310);
+  ctx.lineTo(px + pw - 14, py + 310);
+  ctx.stroke();
+  ctx.restore();
+
+  // 6c. "Proud Caissa School Of Chess Student" box
+  var bx = px + 12, bTop = py + 326, bBoxW = pw - 24, bBoxH = 44, bRad = 10;
+  ctx.save();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#2196F3';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx + bRad, bTop);
+  ctx.lineTo(bx + bBoxW - bRad, bTop);
+  ctx.quadraticCurveTo(bx + bBoxW, bTop, bx + bBoxW, bTop + bRad);
+  ctx.lineTo(bx + bBoxW, bTop + bBoxH - bRad);
+  ctx.quadraticCurveTo(bx + bBoxW, bTop + bBoxH, bx + bBoxW - bRad, bTop + bBoxH);
+  ctx.lineTo(bx + bRad, bTop + bBoxH);
+  ctx.quadraticCurveTo(bx, bTop + bBoxH, bx, bTop + bBoxH - bRad);
+  ctx.lineTo(bx, bTop + bRad);
+  ctx.quadraticCurveTo(bx, bTop, bx + bRad, bTop);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // Box text: "Proud [red]Caissa School Of Chess[/red] Student"
+  var boxCy = bTop + bBoxH / 2;
+  ctx.font = 'bold 12px Arial, sans-serif';
+  ctx.textBaseline = 'middle';
+  var seg1 = 'Proud ', seg2 = 'Caissa School Of Chess', seg3 = ' Student';
+  var segW1 = ctx.measureText(seg1).width;
+  var segW2 = ctx.measureText(seg2).width;
+  var segW3 = ctx.measureText(seg3).width;
+  var iconW = 22, iconGap = 7;
+  var totalBoxW = iconW + iconGap + segW1 + segW2 + segW3;
+  var tx = bx + (bBoxW - totalBoxW) / 2;
+  // Mini mortarboard icon
+  var ix = tx, iTop = boxCy - 11;
+  ctx.fillStyle = '#1565C0'; ctx.fillRect(ix + 1, iTop + 5, 18, 10);
+  ctx.fillStyle = '#42A5F5'; ctx.fillRect(ix + 1, iTop + 5, 18, 5);
+  ctx.fillStyle = '#0D47A1'; ctx.fillRect(ix - 1, iTop + 3, 22, 4);
+  ctx.beginPath();
+  ctx.moveTo(ix + 11, iTop - 4);
+  ctx.lineTo(ix - 1, iTop + 3);
+  ctx.lineTo(ix + 23, iTop + 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#FFC107';
+  ctx.beginPath();
+  ctx.arc(ix + 20, iTop - 2, 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Text segments
+  tx += iconW + iconGap;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#0a1825';  ctx.fillText(seg1, tx, boxCy);
+  ctx.fillStyle = '#b83030';  ctx.fillText(seg2, tx + segW1, boxCy);
+  ctx.fillStyle = '#0a1825';  ctx.fillText(seg3, tx + segW1 + segW2, boxCy);
+
   // 7. Images loaded async; download after all done
   var total  = 3 + (photoDataUri ? 1 : 0);
   var loaded = 0;
