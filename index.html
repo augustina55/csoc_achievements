@@ -511,10 +511,14 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'  background-size:24px 24px; font-family:Arial,Helvetica,sans-serif; }'
     +'.strip { position:absolute; left:50px; top:55px; width:185px; height:590px;'
     +'  background:'+strip+'; border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2; }'
-    +'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
-    +'  text-orientation:mixed; transform:rotate(180deg); font-size:'+(ratingPoints!==null?'40':'105')+'px; font-weight:900;'
-    +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
-    +'  -webkit-text-stroke:'+(ratingPoints!==null?'3':'5')+'px #ffffff; letter-spacing:'+(ratingPoints!==null?'2':'0')+'px; white-space:nowrap; z-index:5; }'
+    +(ratingPoints!==null
+      ?'.champ-text{position:absolute;right:303px;top:55px;width:185px;height:590px;display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;z-index:5;}'
+       +'.champ-text span{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);font-size:80px;font-weight:900;font-family:"Arial Black",Arial,sans-serif;color:transparent;-webkit-text-stroke:3px #ffffff;letter-spacing:2px;white-space:nowrap;}'
+      :'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
+       +'  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;'
+       +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
+       +'  -webkit-text-stroke:5px #ffffff; letter-spacing:0; white-space:nowrap; z-index:5; }'
+    )
     +'.grid-panel { position:absolute; left:233px; top:55px; width:307px; height:590px;'
     +'  background:#fff; z-index:2; border:1.5px solid #c0c0c0;'
     +'  box-shadow:-5px 0 16px rgba(0,0,0,.13),5px 5px 16px rgba(0,0,0,.09); }'
@@ -566,13 +570,14 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     '  ctx.closePath();ctx.fillStyle=ST;ctx.fill();',
     '  var cx2=sx+sw/2;',
     '  if(RT){',
-    '    var rchs=["D","E","N","I","A","G"," ","G","N","I","T","A","R"],rfz=40;',
-    '    var rtot=rchs.length*rfz,rStartY=sy+(sh-rtot)/2;',
+    '    var rfz=75,col1=["G","N","I","T","A","R"],col2=["D","E","N","I","A","G"];',
+    '    var rtot=col1.length*rfz,rSY=sy+(sh-rtot)/2;',
+    '    var ccol1=sx+Math.round(sw/4),ccol2=sx+Math.round(3*sw/4);',
     '    ctx.font="900 "+rfz+"px Arial,sans-serif";ctx.strokeStyle="rgba(255,255,255,0.85)";ctx.lineWidth=3;',
     '    ctx.textAlign="center";ctx.textBaseline="middle";',
-    '    for(var ri=0;ri<rchs.length;ri++){var rcy=rStartY+rfz/2+ri*rfz;',
-    '      ctx.save();ctx.translate(cx2,rcy);ctx.rotate(-Math.PI/2);',
-    '      ctx.strokeText(rchs[ri],0,0);ctx.restore();}',
+    '    for(var ri=0;ri<col1.length;ri++){var rcy=rSY+rfz/2+ri*rfz;',
+    '      ctx.save();ctx.translate(ccol1,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(col1[ri],0,0);ctx.restore();',
+    '      ctx.save();ctx.translate(ccol2,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(col2[ri],0,0);ctx.restore();}',
     '  }else{',
     '    var chs=["P","M","A","H","C"];',
     '    ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";ctx.lineWidth=5;',
@@ -671,7 +676,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'<div id="poster-div" class="poster">'
     +'  <img class="medal" src="'+MEDAL_B64+'" alt="">'
     +'  <div class="strip"></div>'
-    +'  <div class="champ-text">'+(ratingPoints!==null?'RATING GAINED':'CHAMP')+'</div>'
+    +'  <div class="champ-text">'+(ratingPoints!==null?'<span>RATING</span><span>GAINED</span>':'CHAMP')+'</div>'
     +'  <div class="grid-panel">'
     +'    <div class="logo-area"><img src="'+LOGO_B64+'" alt="CircleChess"></div>'
     +'    <div class="student-name">'+(name.indexOf(" ")>0?escHtml(name.slice(0,name.indexOf(" ")))+'<br>'+escHtml(name.slice(name.indexOf(" ")+1)):escHtml(name))+'</div>'
@@ -836,22 +841,22 @@ function drawAndDownloadPoster() {
 
   // 4. Strip vertical text: CHAMP or RATING GAINED
   if (isRating) {
-    var rchs = ['D','E','N','I','A','G',' ','G','N','I','T','A','R'], rfz = 40;
-    var rtot = rchs.length * rfz;
+    var rfz = 75;
+    var col1 = ['G','N','I','T','A','R'], col2 = ['D','E','N','I','A','G'];
+    var rtot = col1.length * rfz;
     var rStartY = sy + (sh - rtot) / 2;
-    var rcx = sx + sw / 2;
+    var ccol1 = sx + Math.round(sw / 4), ccol2 = sx + Math.round(3 * sw / 4);
     ctx.font = '900 ' + rfz + 'px Arial, sans-serif';
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 3;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (var ri = 0; ri < rchs.length; ri++) {
+    for (var ri = 0; ri < col1.length; ri++) {
       var rcy = rStartY + rfz / 2 + ri * rfz;
-      ctx.save();
-      ctx.translate(rcx, rcy);
-      ctx.rotate(-Math.PI / 2);
-      ctx.strokeText(rchs[ri], 0, 0);
-      ctx.restore();
+      ctx.save(); ctx.translate(ccol1, rcy); ctx.rotate(-Math.PI / 2);
+      ctx.strokeText(col1[ri], 0, 0); ctx.restore();
+      ctx.save(); ctx.translate(ccol2, rcy); ctx.rotate(-Math.PI / 2);
+      ctx.strokeText(col2[ri], 0, 0); ctx.restore();
     }
   } else {
     ctx.save();
