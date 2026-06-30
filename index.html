@@ -465,7 +465,7 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function buildPosterHtml(name, posText, tournamentName, photoUri) {
+function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) {
   var base  = currentColor;
   var strip = darkenColor(base, 0.28);
   var bg    = lightenColor(base, 0.60);
@@ -487,9 +487,9 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'.strip { position:absolute; left:50px; top:55px; width:185px; height:590px;'
     +'  background:'+strip+'; border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2; }'
     +'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
-    +'  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;'
+    +'  text-orientation:mixed; transform:rotate(180deg); font-size:'+(ratingPoints!==null?'40':'105')+'px; font-weight:900;'
     +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
-    +'  -webkit-text-stroke:5px #ffffff; letter-spacing:0; white-space:nowrap; z-index:5; }'
+    +'  -webkit-text-stroke:'+(ratingPoints!==null?'3':'5')+'px #ffffff; letter-spacing:'+(ratingPoints!==null?'2':'0')+'px; white-space:nowrap; z-index:5; }'
     +'.grid-panel { position:absolute; left:233px; top:55px; width:307px; height:590px;'
     +'  background:#fff; z-index:2; border:1.5px solid #c0c0c0;'
     +'  box-shadow:-5px 0 16px rgba(0,0,0,.13),5px 5px 16px rgba(0,0,0,.09); }'
@@ -509,13 +509,17 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
-    +'.caissa-box { position:absolute; top:290px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:11px; font-weight:700; color:#0a1825; white-space:nowrap; z-index:3; }'
+    +'.caissa-box { position:absolute; top:'+(ratingPoints!==null?322:290)+'px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:11px; font-weight:700; color:#0a1825; white-space:nowrap; z-index:3; }'
     +'.caissa-logo { width:28px; height:26px; object-fit:contain; flex-shrink:0; }'
-    +'.c-red { color:#b83030; }';
+    +'.c-red { color:#b83030; }'
+    +'.rating-pill-wrap{position:absolute;top:220px;left:14px;right:14px;display:flex;align-items:center;gap:14px;z-index:3;}'
+    +'.rating-pill{background:#2196F3;color:#fff;border-radius:10px;padding:8px 18px;font-size:24px;font-weight:900;min-width:108px;text-align:center;flex-shrink:0;}'
+    +'.points-lbl{font-size:13px;font-weight:900;color:#1a2a3a;line-height:1.5;letter-spacing:0.04em;}'
+    +'.r-dot-div{position:absolute;left:14px;right:14px;border-top:1.5px dashed #b0c8d4;top:315px;}';
 
   /* ── popup canvas script (all double-quoted JS, no single-quote conflicts) ── */
   var sc = [
-    'var BG="'+bg+'",ST="'+strip+'";',
+    'var BG="'+bg+'",ST="'+strip+'",RT='+(ratingPoints!==null?('"+'+(ratingPoints)+'"'):'null')+';',
     'function wT(c,t,x,y,mw,lh){',
     '  var ws=t.split(" "),ln="";',
     '  for(var i=0;i<ws.length;i++){',
@@ -535,20 +539,30 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  ctx.lineTo(sx+sr,sy+sh);ctx.quadraticCurveTo(sx,sy+sh,sx,sy+sh-sr);',
     '  ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);',
     '  ctx.closePath();ctx.fillStyle=ST;ctx.fill();',
-    '  var cx2=sx+sw-50,em=105,ls=0,chs=["P","M","A","H","C"];',
-    '  ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";',
-    '  ctx.lineWidth=5;ctx.textAlign="center";ctx.textBaseline="middle";',
-    '  for(var ci=0;ci<chs.length;ci++){',
-    '    var cy2=sy+em/2+ci*(em+ls);',
-    '    ctx.save();ctx.translate(cx2,cy2);ctx.rotate(-Math.PI/2);',
-    '    ctx.strokeText(chs[ci],0,0);ctx.restore();',
+    '  var cx2=sx+sw/2;',
+    '  if(RT){',
+    '    var rchs=["D","E","N","I","A","G"," ","G","N","I","T","A","R"],rfz=40;',
+    '    var rtot=rchs.length*rfz,rStartY=sy+(sh-rtot)/2;',
+    '    ctx.font="900 "+rfz+"px Arial,sans-serif";ctx.strokeStyle="rgba(255,255,255,0.85)";ctx.lineWidth=3;',
+    '    ctx.textAlign="center";ctx.textBaseline="middle";',
+    '    for(var ri=0;ri<rchs.length;ri++){var rcy=rStartY+rfz/2+ri*rfz;',
+    '      ctx.save();ctx.translate(cx2,rcy);ctx.rotate(-Math.PI/2);',
+    '      ctx.strokeText(rchs[ri],0,0);ctx.restore();}',
+    '  }else{',
+    '    var chs=["P","M","A","H","C"];',
+    '    ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";ctx.lineWidth=5;',
+    '    ctx.textAlign="center";ctx.textBaseline="middle";',
+    '    for(var ci=0;ci<chs.length;ci++){var cy2=sy+105/2+ci*105;',
+    '      ctx.save();ctx.translate(cx2,cy2);ctx.rotate(-Math.PI/2);',
+    '      ctx.strokeText(chs[ci],0,0);ctx.restore();}',
     '  }',
     '  var px=233,py=55,pw=307,ph=590;',
     '  ctx.save();ctx.shadowColor="rgba(0,0,0,0.13)";ctx.shadowBlur=16;',
     '  ctx.shadowOffsetX=-5;ctx.shadowOffsetY=4;ctx.fillStyle="#fff";ctx.fillRect(px,py,pw,ph);ctx.restore();',
     '  ctx.strokeStyle="#c0c0c0";ctx.lineWidth=1;ctx.strokeRect(px,py,pw,ph);',
     '  var nm=document.querySelector(".student-name").textContent.trim().toUpperCase();',
-    '  var pt=document.querySelector(".ach-pos").textContent.trim();',
+    '  var ptEl=document.querySelector(".ach-pos");',
+    '  var pt=ptEl?ptEl.textContent.trim():"";',
     '  var tt=document.querySelector(".ach-tourn").textContent.trim();',
     '  var cxP=px+pw/2;',
     '  ctx.fillStyle="#2c3e50";ctx.font="900 22px Georgia,serif";',
@@ -556,13 +570,36 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     '  var spIdx=nm.indexOf(" ");',
     '  if(spIdx>0){ctx.fillText(nm.slice(0,spIdx),cxP,208);ctx.fillText(nm.slice(spIdx+1),cxP,234);}else{ctx.fillText(nm,cxP,221);}',
     '  ctx.fillStyle=ST;ctx.fillRect(px+14,263,pw-28,2);',
-    '  ctx.fillStyle="#3a4a5c";ctx.font="bold 15px Arial,sans-serif";',
-    '  wT(ctx,pt,cxP,293,pw-28,20);',
-    '  ctx.fillStyle="#2c3e50";ctx.font="bold 15px Arial,sans-serif";',
-    '  wT(ctx,tt,cxP,321,pw-28,20);',
+    '  if(RT){',
+    '    var rpX=px+14,rpY=py+220,rpW=108,rpH=48,rpRad=10;',
+    '    ctx.save();ctx.shadowColor="transparent";ctx.shadowBlur=0;',
+    '    ctx.fillStyle="#2196F3";',
+    '    ctx.beginPath();ctx.moveTo(rpX+rpRad,rpY);ctx.lineTo(rpX+rpW-rpRad,rpY);',
+    '    ctx.quadraticCurveTo(rpX+rpW,rpY,rpX+rpW,rpY+rpRad);ctx.lineTo(rpX+rpW,rpY+rpH-rpRad);',
+    '    ctx.quadraticCurveTo(rpX+rpW,rpY+rpH,rpX+rpW-rpRad,rpY+rpH);ctx.lineTo(rpX+rpRad,rpY+rpH);',
+    '    ctx.quadraticCurveTo(rpX,rpY+rpH,rpX,rpY+rpH-rpRad);ctx.lineTo(rpX,rpY+rpRad);',
+    '    ctx.quadraticCurveTo(rpX,rpY,rpX+rpRad,rpY);ctx.closePath();ctx.fill();ctx.restore();',
+    '    ctx.fillStyle="#fff";ctx.font="900 24px Arial,sans-serif";',
+    '    ctx.textAlign="center";ctx.textBaseline="middle";',
+    '    ctx.fillText(RT,rpX+rpW/2,rpY+rpH/2);',
+    '    ctx.fillStyle="#1a2a3a";ctx.font="900 13px Arial,sans-serif";ctx.textAlign="left";',
+    '    ctx.fillText("POINTS",rpX+rpW+14,rpY+rpH/2-9);',
+    '    ctx.fillText("GAINED",rpX+rpW+14,rpY+rpH/2+9);',
+    '    ctx.fillStyle="#2c3e50";ctx.font="bold 15px Arial,sans-serif";',
+    '    ctx.textAlign="center";ctx.textBaseline="alphabetic";',
+    '    wT(ctx,tt,cxP,py+285,pw-28,20);',
+    '    ctx.save();ctx.setLineDash([4,4]);ctx.strokeStyle="#b0c8d4";ctx.lineWidth=1.5;',
+    '    ctx.beginPath();ctx.moveTo(px+14,py+315);ctx.lineTo(px+pw-14,py+315);ctx.stroke();ctx.restore();',
+    '  }else{',
+    '    ctx.fillStyle="#3a4a5c";ctx.font="bold 15px Arial,sans-serif";',
+    '    ctx.textAlign="center";ctx.textBaseline="alphabetic";',
+    '    wT(ctx,pt,cxP,293,pw-28,20);',
+    '    ctx.fillStyle="#2c3e50";ctx.font="bold 15px Arial,sans-serif";',
+    '    wT(ctx,tt,cxP,321,pw-28,20);',
+    '  }',
     '  ctx.fillStyle="#bbb";ctx.font="10px Arial,sans-serif";ctx.textAlign="right";',
     '  ctx.fillText("learn.circlechess.com",px+pw-10,635);',
-    '  var bx2=px+12,bT2=py+290,bW2=pw-24,bH2=44,bR2=10;',
+    '  var bx2=px+12,bT2=py+'+(ratingPoints!==null?322:290)+',bW2=pw-24,bH2=44,bR2=10;',
     '  ctx.save();ctx.shadowColor="transparent";ctx.shadowBlur=0;',
     '  ctx.fillStyle="#fff";ctx.strokeStyle="#2196F3";ctx.lineWidth=2;',
     '  ctx.beginPath();ctx.moveTo(bx2+bR2,bT2);ctx.lineTo(bx2+bW2-bR2,bT2);',
@@ -609,13 +646,18 @@ function buildPosterHtml(name, posText, tournamentName, photoUri) {
     +'<div id="poster-div" class="poster">'
     +'  <img class="medal" src="'+MEDAL_B64+'" alt="">'
     +'  <div class="strip"></div>'
-    +'  <div class="champ-text">CHAMP</div>'
+    +'  <div class="champ-text">'+(ratingPoints!==null?'RATING GAINED':'CHAMP')+'</div>'
     +'  <div class="grid-panel">'
     +'    <div class="logo-area"><img src="'+LOGO_B64+'" alt="CircleChess"></div>'
     +'    <div class="student-name">'+(name.indexOf(" ")>0?escHtml(name.slice(0,name.indexOf(" ")))+'<br>'+escHtml(name.slice(name.indexOf(" ")+1)):escHtml(name))+'</div>'
     +'    <div class="divider"></div>'
-    +'    <div class="ach-pos">'+escHtml(posText)+'</div>'
+    +(ratingPoints!==null
+    ?'    <div class="rating-pill-wrap"><div class="rating-pill">+'+ratingPoints+'</div><div class="points-lbl">POINTS<br>GAINED</div></div>'
+    +'    <div class="r-dot-div"></div>'
+    +'    <div class="ach-tourn" style="top:275px">'+escHtml(tournamentName)+'</div>'
+    :'    <div class="ach-pos">'+escHtml(posText)+'</div>'
     +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
+    )
     
     +'    <div class="caissa-box">'
     +'      <img class="caissa-logo" src="'+CSOC_B64+'" alt="">'
@@ -636,7 +678,8 @@ function generatePoster() {
   var playerName     = (document.getElementById('modal-player').value     || '').trim() || currentRow.player_name;
   var tournamentName = (document.getElementById('modal-tournament').value || '').trim() || currentRow.tournament_name;
   var posText        = buildAchText(currentRow);
-  var posterHtml     = buildPosterHtml(playerName, posText, tournamentName, photoDataUri);
+  var ratingPoints   = (currentRow.is_rated && currentRow.rating_change != null && currentRow.rating_change >= 30) ? currentRow.rating_change : null;
+  var posterHtml     = buildPosterHtml(playerName, posText, tournamentName, photoDataUri, ratingPoints);
   var win = window.open('', '_blank', 'width=600,height=800,toolbar=no,menubar=no,scrollbars=yes,location=no');
   if (!win) { alert('Please allow pop-ups for this page to preview the poster.'); return; }
   win.document.open();
@@ -730,6 +773,8 @@ function drawAndDownloadPoster() {
   // Achievement lines
   var achLine1 = buildAchText(currentRow);
   var achLine2 = tournamentName;
+  var isRating = !!(currentRow.is_rated && currentRow.rating_change != null && currentRow.rating_change >= 30);
+  var ratingPts = isRating ? currentRow.rating_change : null;
 
   var W = 540, H = 700;
   var canvas = document.createElement('canvas');
@@ -764,17 +809,37 @@ function drawAndDownloadPoster() {
   ctx.fillStyle = strip;
   ctx.fill();
 
-  // 4. CHAMP vertical stroke text centred on strip
-  ctx.save();
-  ctx.translate(sx + sw / 2, sy + sh / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.font = '900 85px Arial, sans-serif';
-  ctx.strokeStyle = 'rgba(255,255,255,0.82)';
-  ctx.lineWidth = 4;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.strokeText('CHAMP', 0, 0);
-  ctx.restore();
+  // 4. Strip vertical text: CHAMP or RATING GAINED
+  if (isRating) {
+    var rchs = ['D','E','N','I','A','G',' ','G','N','I','T','A','R'], rfz = 40;
+    var rtot = rchs.length * rfz;
+    var rStartY = sy + (sh - rtot) / 2;
+    var rcx = sx + sw / 2;
+    ctx.font = '900 ' + rfz + 'px Arial, sans-serif';
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 3;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (var ri = 0; ri < rchs.length; ri++) {
+      var rcy = rStartY + rfz / 2 + ri * rfz;
+      ctx.save();
+      ctx.translate(rcx, rcy);
+      ctx.rotate(-Math.PI / 2);
+      ctx.strokeText(rchs[ri], 0, 0);
+      ctx.restore();
+    }
+  } else {
+    ctx.save();
+    ctx.translate(sx + sw / 2, sy + sh / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '900 85px Arial, sans-serif';
+    ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+    ctx.lineWidth = 4;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeText('CHAMP', 0, 0);
+    ctx.restore();
+  }
 
   // 5. White panel with shadow
   var px = 233, py = 55, pw = 307, ph = 590;
@@ -810,15 +875,49 @@ function drawAndDownloadPoster() {
   ctx.fillStyle = strip;
   ctx.fillRect(px + 14, py + 208, pw - 28, 2);
 
-  ctx.fillStyle = '#3a4a5c';
-  ctx.font = 'bold 15px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  var lastY = wrapText(ctx, achLine1, cx, py + 234, pw - 28, 20);
-
-  ctx.fillStyle = '#2c3e50';
-  ctx.font = 'bold 15px Arial, sans-serif';
-  wrapText(ctx, achLine2, cx, lastY + 22, pw - 28, 20);
+  if (isRating) {
+    var rpX = px + 14, rpY = py + 220, rpW = 108, rpH = 48, rpRad = 10;
+    ctx.save(); ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
+    ctx.fillStyle = '#2196F3';
+    ctx.beginPath();
+    ctx.moveTo(rpX + rpRad, rpY); ctx.lineTo(rpX + rpW - rpRad, rpY);
+    ctx.quadraticCurveTo(rpX + rpW, rpY, rpX + rpW, rpY + rpRad);
+    ctx.lineTo(rpX + rpW, rpY + rpH - rpRad);
+    ctx.quadraticCurveTo(rpX + rpW, rpY + rpH, rpX + rpW - rpRad, rpY + rpH);
+    ctx.lineTo(rpX + rpRad, rpY + rpH);
+    ctx.quadraticCurveTo(rpX, rpY + rpH, rpX, rpY + rpH - rpRad);
+    ctx.lineTo(rpX, rpY + rpRad);
+    ctx.quadraticCurveTo(rpX, rpY, rpX + rpRad, rpY);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#fff';
+    ctx.font = '900 24px Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('+' + ratingPts, rpX + rpW / 2, rpY + rpH / 2);
+    ctx.fillStyle = '#1a2a3a';
+    ctx.font = '900 13px Arial, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText('POINTS', rpX + rpW + 14, rpY + rpH / 2 - 9);
+    ctx.fillText('GAINED', rpX + rpW + 14, rpY + rpH / 2 + 9);
+    ctx.fillStyle = '#2c3e50';
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    wrapText(ctx, tournamentName, cx, py + 285, pw - 28, 20);
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#b0c8d4'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(px + 14, py + 315); ctx.lineTo(px + pw - 14, py + 315);
+    ctx.stroke(); ctx.restore();
+  } else {
+    ctx.fillStyle = '#3a4a5c';
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    var lastY = wrapText(ctx, achLine1, cx, py + 234, pw - 28, 20);
+    ctx.fillStyle = '#2c3e50';
+    ctx.font = 'bold 15px Arial, sans-serif';
+    wrapText(ctx, achLine2, cx, lastY + 22, pw - 28, 20);
+  }
 
   ctx.fillStyle = '#bbb';
   ctx.font = '10px Arial, sans-serif';
@@ -865,7 +964,7 @@ function drawAndDownloadPoster() {
   chessImg.src = CHESS_B64;
 
   // Caissa box: border + text + image
-  var cbx = px + 12, cbT = py + 290, cbW = pw - 24, cbH = 44, cbR = 10;
+  var cbx = px + 12, cbT = py + (isRating ? 322 : 290), cbW = pw - 24, cbH = 44, cbR = 10;
   ctx.save();
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2196F3'; ctx.lineWidth = 2;
