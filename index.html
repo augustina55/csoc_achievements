@@ -245,6 +245,13 @@
         <label>Tournament</label>
         <input type="text" class="mval" id="modal-tournament" value="—" style="width:100%;font-size:0.83rem;cursor:text">
       </div>
+      <div class="mfield" id="poster-type-field" style="display:none">
+        <label>Poster Type</label>
+        <div class="poster-type-row">
+          <button class="ptype-btn" id="ptype-achiever" onclick="setPosterType('achiever')">🏆 Achiever</button>
+          <button class="ptype-btn" id="ptype-rating" onclick="setPosterType('rating')">📈 Rating Gained</button>
+        </div>
+      </div>
       <div class="mfield">
         <label>Player Photo (optional)</label>
         <div class="upload-area" onclick="document.getElementById('photo-input').click()">
@@ -358,6 +365,7 @@ renderAchieversTable();
 
 // ── Poster modal ──────────────────────────────────────────────────────────────
 var currentRow   = null;
+var posterType   = 'achiever';
 var currentColor = '#d4a832';
 var photoDataUri = '';
 
@@ -435,7 +443,21 @@ function openPosterModal(idx) {
   document.getElementById('photo-preview').style.display   = 'none';
   document.getElementById('upload-hint').innerHTML         = '<strong>Click to upload</strong> a player photo';
   document.getElementById('photo-input').value             = '';
+  var typeField = document.getElementById('poster-type-field');
+  if (currentRow.is_rated) {
+    typeField.style.display = '';
+    setPosterType('rating');
+  } else {
+    typeField.style.display = 'none';
+    posterType = 'achiever';
+  }
   document.getElementById('poster-modal').classList.add('open');
+}
+
+function setPosterType(t) {
+  posterType = t;
+  document.getElementById('ptype-achiever').classList.toggle('active', t === 'achiever');
+  document.getElementById('ptype-rating').classList.toggle('active', t === 'rating');
 }
 
 function closeModal() {
@@ -479,7 +501,10 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'.toolbar span { font-size:13px; color:#666; }'
     +'.dl-btn { background:#9a7810; color:#fff; border:none; border-radius:6px;'
     +'  padding:8px 20px; font-size:13px; font-weight:700; cursor:pointer; }'
-    +'.poster-wrap { padding-top:56px; display:flex; justify-content:center; min-height:100vh; padding-bottom:24px; }'
+    +'.poster-wrap { padding-top:56px; display:flex; justify-content:center; min-height:100vh; padding-bottom:24px; }
+.poster-type-row { display:flex; gap:8px; margin-top:4px; }
+.ptype-btn { flex:1; padding:8px 4px; border-radius:7px; border:2px solid #e2e8f0; background:#f8fafc; font-size:13px; font-weight:700; cursor:pointer; color:#64748b; transition:all .15s; }
+.ptype-btn.active { border-color:#2563eb; background:#eff6ff; color:#2563eb; }'
     +'.poster { width:540px; height:700px; position:relative; overflow:hidden;'
     +'  background-color:'+bg+';'
     +'  background-image:radial-gradient(circle,rgba(150,200,180,0.5) 2.5px,transparent 2.5px);'
@@ -678,7 +703,7 @@ function generatePoster() {
   var playerName     = (document.getElementById('modal-player').value     || '').trim() || currentRow.player_name;
   var tournamentName = (document.getElementById('modal-tournament').value || '').trim() || currentRow.tournament_name;
   var posText        = buildAchText(currentRow);
-  var ratingPoints   = (currentRow.is_rated && currentRow.rating_change != null && currentRow.rating_change >= 30) ? currentRow.rating_change : null;
+  var ratingPoints   = (posterType === 'rating' && currentRow.is_rated) ? (currentRow.rating_change || 0) : null;
   var posterHtml     = buildPosterHtml(playerName, posText, tournamentName, photoDataUri, ratingPoints);
   var win = window.open('', '_blank', 'width=600,height=800,toolbar=no,menubar=no,scrollbars=yes,location=no');
   if (!win) { alert('Please allow pop-ups for this page to preview the poster.'); return; }
@@ -773,8 +798,8 @@ function drawAndDownloadPoster() {
   // Achievement lines
   var achLine1 = buildAchText(currentRow);
   var achLine2 = tournamentName;
-  var isRating = !!(currentRow.is_rated && currentRow.rating_change != null && currentRow.rating_change >= 30);
-  var ratingPts = isRating ? currentRow.rating_change : null;
+  var isRating = (posterType === 'rating' && currentRow.is_rated);
+  var ratingPts = isRating ? (currentRow.rating_change || 0) : null;
 
   var W = 540, H = 700;
   var canvas = document.createElement('canvas');
