@@ -819,17 +819,17 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     +'  background-color:'+bg+';'
     +'  background-image:radial-gradient(circle,rgba(150,200,180,0.5) 2.5px,transparent 2.5px);'
     +'  background-size:24px 24px; font-family:Arial,Helvetica,sans-serif; }'
-    +'.strip { position:absolute; left:50px; top:55px; width:185px; height:590px;'
+    +'.strip { position:absolute; left:50px; top:55px; width:220px; height:590px;'
     +'  background:'+strip+'; border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2; }'
     +(twoCol
-      ?'.champ-text{position:absolute;right:303px;top:55px;width:185px;height:590px;display:flex;flex-direction:row;align-items:flex-start;justify-content:center;padding-top:18px;gap:2px;z-index:5;}'
+      ?'.champ-text{position:absolute;right:268px;top:55px;width:220px;height:590px;display:flex;flex-direction:row;align-items:flex-start;justify-content:center;padding-top:18px;gap:2px;z-index:5;}'
        +'.champ-text span{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);font-size:80px;font-weight:900;font-family:"Archivo Black","Arial Black",Arial,sans-serif;color:transparent;-webkit-text-stroke:3px #ffffff;letter-spacing:2px;white-space:nowrap;}'
-      :'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
+      :'.champ-text { position:absolute; right:268px; top:55px; writing-mode:vertical-rl;'
        +'  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;'
        +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
        +'  -webkit-text-stroke:5px #ffffff; letter-spacing:0; white-space:nowrap; z-index:5; }'
     )
-    +'.grid-panel { position:absolute; left:233px; top:55px; width:307px; height:590px;'
+    +'.grid-panel { position:absolute; left:268px; top:55px; width:272px; height:590px;'
     +'  background:#fff; z-index:2; border:1.5px solid #c0c0c0;'
     +'  box-shadow:-5px 0 16px rgba(0,0,0,.13),5px 5px 16px rgba(0,0,0,.09); }'
     +    +'.logo-area { position:absolute; left:0; right:0; top:10px; text-align:center; }'
@@ -843,13 +843,14 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     +'.ach-tourn { position:absolute; top:165px; left:14px; right:14px; text-align:left;'
     +'  font-size:13px; font-weight:600; color:#2c3e50; line-height:1.5; max-height:80px; overflow:hidden; }'
     +'.div2 { position:absolute; top:255px; left:14px; right:14px; height:2px; background:'+strip+'; opacity:0.45; }'
-    +'.proud-line { position:absolute; top:270px; left:14px; right:14px; font-size:10px; font-weight:800;'
-    +'  color:#0a1825; white-space:nowrap; font-family:Arial,sans-serif; }'
-    +'.proud-line .c-red { color:#b83030; }'
+    +'.proud-line { position:absolute; top:262px; left:14px; right:14px; display:flex; align-items:center; gap:8px; }'
+    +'.csoc-circle { width:34px; height:34px; border-radius:50%; border:2.5px solid #e53935; object-fit:cover; flex-shrink:0; }'
+    +'.proud-txt { font-size:10px; font-weight:800; color:#0a1825; font-family:Arial,sans-serif; white-space:nowrap; }'
+    +'.proud-txt .c-red { color:#b83030; }'
     +'.c-red { color:#b83030; }'
     +'.medal { position:absolute; top:-20px; left:-40px; width:160px; z-index:1; }'
-    +'.chess { position:absolute; bottom:0; right:-20px; width:300px; height:340px; z-index:10; }'
-    +'.profile { position:absolute; left:77px; bottom:14px; width:130px; height:130px;'
+    +'.chess { position:absolute; bottom:-30px; right:-80px; width:360px; height:400px; z-index:10; }'
+    +'.profile { position:absolute; left:80px; bottom:10px; width:160px; height:160px;'
     +'  border-radius:50%; overflow:hidden; background:#ccc; border:4px solid #fff; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.rating-pill-wrap{position:absolute;top:140px;left:14px;right:14px;display:flex;align-items:center;gap:14px;z-index:3;}'
@@ -877,7 +878,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     '  ctx.fillStyle="rgba(100,180,140,0.42)";',
     '  for(var dy=12;dy<H;dy+=24)for(var dx=12;dx<W;dx+=24){ctx.beginPath();ctx.arc(dx,dy,2.5,0,Math.PI*2);ctx.fill();}',
     '  if(md&&md.src){var mi2=new Image();mi2.src=md.src;if(mi2.complete){ctx.drawImage(mi2,-40,-20,160,250);}}',
-    '  var sx=50,sy=55,sw=185,sh=590,sr=65;',
+    '  var sx=50,sy=55,sw=220,sh=590,sr=65;',
     '  ctx.beginPath();ctx.moveTo(sx+sr,sy);ctx.lineTo(sx+sw,sy);ctx.lineTo(sx+sw,sy+sh);',
     '  ctx.lineTo(sx+sr,sy+sh);ctx.quadraticCurveTo(sx,sy+sh,sx,sy+sh-sr);',
     '  ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);',
@@ -903,7 +904,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     '      ctx.save();ctx.translate(cx2,cy2);ctx.rotate(-Math.PI/2);',
     '      ctx.strokeText(chs[ci],0,0);ctx.restore();}',
     '  }',
-    '  var px=233,py=55,pw=307,ph=590;',
+    '  var px=268,py=55,pw=272,ph=590;',
     '  ctx.save();ctx.shadowColor="rgba(0,0,0,0.13)";ctx.shadowBlur=16;',
     '  ctx.shadowOffsetX=-5;ctx.shadowOffsetY=4;ctx.fillStyle="#fff";ctx.fillRect(px,py,pw,ph);ctx.restore();',
     '  ctx.strokeStyle="#c0c0c0";ctx.lineWidth=1;ctx.strokeRect(px,py,pw,ph);',
@@ -965,7 +966,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     '  di(ch,350,480,260,295);',
     '  di(cs,csX,Math.round(bT2+(bH2-26)/2),28,26);',
     '  di(lg,px+(pw-160)/2,py+10,160,80);',
-    '  dc(pf,142,566,65);',
+    '  dc(pf,160,590,80);',
     '}'
   ].join('\n');
 
@@ -996,7 +997,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     +(tournamentName?'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>':'')
     )
     +'    <div class="div2"></div>'
-    +'    <div class="proud-line">PROUD <span class="c-red">CAISSA SCHOOL OF CHESS</span> STUDENT</div>'
+    +'    <div class="proud-line"><img src="'+CSOC_B64+'" class="csoc-circle" alt=""><span class="proud-txt">PROUD <span class="c-red">CAISSA SCHOOL OF CHESS</span> STUDENT</span></div>'
     +'  </div>'
     +'  <img class="chess" src="'+CHESS_B64+'" alt="">'
     +'</div>'
