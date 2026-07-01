@@ -1299,6 +1299,15 @@ function switchTab(tab) {
 // Set this to your deployed Google Apps Script Web App URL (sheet_api.gs)
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbw7fkdq14gEeOyq25JcKNEWu26ieq626Ag1WJnBwppq21GP0z1RVLP-p7g9_gwnDDui-A/exec';
 
+// POST helper — avoids URL length limits for write operations
+function gasPost(action, payload) {
+  return fetch(GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ action: action }, payload))
+  }).then(function(r){ return r.json(); });
+}
+
 // ── Players loaded from Google Sheet (Players tab) ────────────────────────────
 // Columns: [Player Name, FIDE ID, Mobile, Sub Start, Sub End, Status, Updated At]
 var PLAYERS_DATA = [];
@@ -1578,9 +1587,7 @@ function saveGotRatingToSheet(results, month) {
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
                 p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
       });
-      var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
-      fetch(url)
-        .then(function(r){ return r.json(); })
+      gasPost('write_got_rating', {rows: rows})
         .then(function(d){
           if (d.ok) setMsg('✓ Saved ' + d.added + ' new records to sheet for ' + month, '#1e7a3e');
           else setMsg('Sheet write error: ' + d.error, '#c0392b');
@@ -1594,8 +1601,7 @@ function saveGotRatingToSheet(results, month) {
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
                 p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
       });
-      var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
-      fetch(url).catch(function(){});
+      gasPost('write_got_rating', {rows: rows}).catch(function(){});
     });
 }
 
@@ -1620,9 +1626,7 @@ function saveAchievementsToSheet() {
       return;
     }
     var chunk = allRows.slice(i, i + BATCH);
-    var url = GAS_URL + '?action=write_achievements&rows=' + encodeURIComponent(JSON.stringify(chunk));
-    fetch(url)
-      .then(function(r){ return r.json(); })
+    gasPost('write_achievements', {rows: chunk})
       .then(function(d){
         if (d.ok) totalAdded += (d.added || 0);
         done++;

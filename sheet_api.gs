@@ -23,9 +23,22 @@ var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Subscription End','Peri
 var STATUS_LABELS   = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
 var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
 
+// ── doPost — handles write operations sent as JSON body ───────────────────────
+function doPost(e) {
+  var body = {};
+  try { body = JSON.parse(e.postData.contents); } catch(_) {}
+  // Merge body fields into a parameter-like object so handler logic is shared
+  var p = Object.assign({}, e.parameter, body);
+  return _handle(p);
+}
+
 // ── doGet ────────────────────────────────────────────────────────────────────
 function doGet(e) {
   var p = e.parameter;
+  return _handle(p);
+}
+
+function _handle(p) {
   var result;
   try {
     var ss = SpreadsheetApp.openById(SS_ID);
@@ -60,7 +73,7 @@ function doGet(e) {
       }
 
     } else if (action === 'write_players') {
-      var rows = JSON.parse(p.rows || '[]');
+      var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
       var counts = upsertPlayers(sh, rows);
       result = { ok: true, added: counts.added, updated: counts.updated };
@@ -78,7 +91,7 @@ function doGet(e) {
       result = { ok: true, rows: all.slice(1) };
 
     } else if (action === 'write_got_rating') {
-      var rows = JSON.parse(p.rows || '[]');
+      var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var added = appendDedup(sh, rows, [1, 4]); // dedup on fide_id + period
       result = { ok: true, added: added, skipped: rows.length - added };
@@ -89,7 +102,7 @@ function doGet(e) {
       result = { ok: true, rows: all.slice(1) };
 
     } else if (action === 'write_achievements') {
-      var rows = JSON.parse(p.rows || '[]');
+      var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id + tournament
       result = { ok: true, added: added, skipped: rows.length - added };
