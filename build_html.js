@@ -1037,8 +1037,7 @@ function switchTab(tab) {
 
 // ── Got Rating ────────────────────────────────────────────────────────────────
 // Set this to your deployed Google Apps Script Web App URL (sheet_api.gs)
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbw7fkdq14gEeOyq25JcKNEWu26ieq626Ag1WJnBwppq21GP0z1RVLP-p7g9_gwnDDui-A/exec';
-
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwwxj4U-F2ScCcJPoGdutZzE4IrADWs6JQcwHSXxRaFLrAtmFAEXBUKSxfoUhE9CLj4Pg/exec';
 function statusChip(s) {
   var labels = {1:'Active',2:'Expired',3:'Upcoming',5:'Pause'};
   var cls    = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
