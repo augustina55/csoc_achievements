@@ -430,10 +430,31 @@ function renderAchieversTable(data) {
 function openAchPoster(i) {
   var r = ACH_ROWS_LIVE[i];
   if (!r) return;
-  // Map to the format openPosterModal expects
-  var idx = ACHIEVER_ROWS.findIndex(function(ar){ return ar.fide_id == r.fide_id && ar.tournament_name === r.tournament_name; });
-  if (idx >= 0) openPosterModal(idx);
-  else { currentRow = Object.assign({ type:'rank' }, r); openPosterModal(-1); }
+  currentRow   = r;
+  photoDataUri = '';
+  var rank = Number(r.rank) || null;
+  var rc   = (r.rating_change !== null && r.rating_change !== undefined && r.rating_change !== '') ? Number(r.rating_change) : null;
+  var isRated = r.is_rated || r.rated === 'RATED';
+
+  document.getElementById('modal-player').value          = r.player_name || '';
+  document.getElementById('modal-achievement').textContent = buildAchText(r);
+  document.getElementById('modal-tournament').value      = r.tournament_name || '';
+  document.getElementById('photo-preview').style.display = 'none';
+  document.getElementById('upload-hint').innerHTML       = '<strong>Click to upload</strong> a player photo';
+  document.getElementById('photo-input').value           = '';
+
+  var typeField = document.getElementById('poster-type-field');
+  if (isRated && rc && rc > 0) {
+    // Rating gained poster (blue strip with RATING GAINED)
+    typeField.style.display = '';
+    currentColor = '#1565C0';
+    setPosterType('rating');
+  } else {
+    // Rank achievement poster (CHAMP strip)
+    typeField.style.display = 'none';
+    posterType = 'achiever';
+  }
+  document.getElementById('poster-modal').classList.add('open');
 }
 
 // ── Load Achievements from Sheet ──────────────────────────────────────────────
@@ -624,8 +645,9 @@ function openGotRatingPoster(idx) {
   var ratingStr    = parts.join(' · ') || 'FIDE Rating';
   var primaryType  = r.gStd ? 'Classical' : (r.gRap ? 'Rapid' : 'Blitz');
   var achieveText  = 'Achieved International ' + primaryType + ' FIDE Rating in ' + fmtMonth(r.period);
-  currentRow = { player_name: name, tournament_name: achieveText, pos_override: ratingStr };
+  currentRow = { player_name: name, tournament_name: '', pos_override: ratingStr };
   posterType = 'rating_achieved';
+  currentColor = '#1565C0';
   document.getElementById('modal-player').value            = name;
   document.getElementById('modal-achievement').textContent = ratingStr;
   document.getElementById('modal-tournament').value        = achieveText;
@@ -1103,10 +1125,14 @@ function generatePoster() {
   var posterHtml;
   if (posterType === 'rating_achieved') {
     var ratingInfo = (document.getElementById('modal-achievement').textContent || '').trim() || currentRow.pos_override || 'FIDE Rating';
-    posterHtml = buildRatingAchievedHtml(playerName, ratingInfo, tournamentName, photoDataUri);
+    posterHtml = buildRatingAchievedHtml(playerName, ratingInfo, '', photoDataUri); // no tournament name
   } else {
-    var posText      = buildAchText(currentRow);
-    var ratingPoints = (posterType === 'rating' && currentRow.is_rated) ? (currentRow.rating_change || 0) : null;
+    var posText = buildAchText(currentRow);
+    var ratingPoints = null;
+    if (posterType === 'rating') {
+      var rc = Number(currentRow.rating_change);
+      ratingPoints = (rc > 0 ? '+' : '') + rc;
+    }
     posterHtml = buildPosterHtml(playerName, posText, tournamentName, photoDataUri, ratingPoints);
   }
   var win = window.open('', '_blank', 'width=600,height=800,toolbar=no,menubar=no,scrollbars=yes,location=no');
