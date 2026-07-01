@@ -1461,6 +1461,7 @@ function fetchGotRating() {
   }
 
   var total = srcPlayers.length, done = 0, gasErrors = 0, results = [];
+  var dbgHasData = 0, dbgHasPeriod = 0; // debug counters
   var LIMIT = 10, running = 0, queue = srcPlayers.slice();
   var tbody = document.getElementById('got-rating-tbody');
   tbody.innerHTML = '';
@@ -1483,11 +1484,13 @@ function fetchGotRating() {
             }
             var hist = (resp && resp.ok) ? resp.data : null;
             if (hist && hist.length > 0) {
+              dbgHasData++;
               var sorted = hist.slice().sort(function(a,b){
                 return new Date(a.period+'-01') - new Date(b.period+'-01');
               });
               var idx = sorted.findIndex(function(r){ return r.period === month; });
               if (idx >= 0) {
+                dbgHasPeriod++;
                 var cur  = sorted[idx];
                 var prev = sorted[idx-1] || {};
                 var std  = cur.classical_rating || 0;
@@ -1510,7 +1513,7 @@ function fetchGotRating() {
               document.getElementById('badge-got').textContent = results.length;
               var errNote = gasErrors > 0 ? ' (' + gasErrors + ' API errors)' : '';
               if (results.length === 0) {
-                setMsg('Done — 0 results. No player got a new FIDE rating in ' + month + errNote, '#888');
+                setMsg('Done — 0 results. ' + dbgHasData + '/' + total + ' had API data, ' + dbgHasPeriod + ' had ' + month + ' entry, 0 were first-time rated' + errNote, '#888');
               } else {
                 setMsg('✓ ' + results.length + ' players got new FIDE rating in ' + month + errNote + ' — saving to sheet…', '#1e7a3e');
                 if (GAS_URL) saveGotRatingToSheet(results, month);
