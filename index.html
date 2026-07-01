@@ -1520,7 +1520,7 @@ function fetchGotRating() {
 // ── Load from Sheet (no auto-fetch fallback) ──────────────────────────────────
 function loadGotFromSheet() {
   var month = selectedMonth();
-  if (!GAS_URL) { setMsg('GAS_URL not configured.', '#c0392b'); return; }
+  if (!GAS_URL) { setMsg('GAS_URL not configured — please hard-refresh (Ctrl+Shift+R).', '#c0392b'); return; }
   setMsg('Loading from sheet for ' + month + '…');
   fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
