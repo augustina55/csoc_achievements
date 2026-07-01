@@ -1355,17 +1355,22 @@ function statusChip(s) {
   return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(STATUS_LABELS[n]||s||'—')+'</span>';
 }
 
-// Build month options: last 18 months newest-first (e.g. "2026-Jun")
+// Build month options: Jan 2026 → current month, newest first
 (function buildMonthSel() {
   var sel = document.getElementById('got-month-sel');
   if (!sel) return;
-  var now = new Date(), opts = [];
-  for (var i = 0; i < 18; i++) {
-    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
-    opts.push(d.getFullYear() + '-' + mn);
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var now = new Date();
+  var curYear = now.getFullYear(), curMon = now.getMonth(); // 0-based
+  var opts = [];
+  for (var y = curYear; y >= 2026; y--) {
+    var mEnd = (y === curYear) ? curMon : 11;
+    var mStart = (y === 2026) ? 0 : 0;
+    for (var m = mEnd; m >= mStart; m--) {
+      opts.push(y + '-' + MN[m]);
+    }
   }
-  sel.innerHTML = opts.map(function(m){ return '<option value="'+m+'">'+m+'</option>'; }).join('');
+  sel.innerHTML = opts.map(function(v){ return '<option value="'+v+'">'+v+'</option>'; }).join('');
 })();
 
 function selectedMonth() {
