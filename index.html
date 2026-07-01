@@ -494,6 +494,8 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
   var bg    = lightenColor(base, 0.60);
 
   var css = ''
+    +'@import url("https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap");'
+    +'@import url("https://api.fontshare.com/v2/css?f[]=thunder@700&display=swap");'
     +'* { margin:0; padding:0; box-sizing:border-box; }'
     +'body { background:#d8cfc3; }'
     +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:9px 20px;'
@@ -513,8 +515,8 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'.strip { position:absolute; left:50px; top:55px; width:185px; height:590px;'
     +'  background:'+strip+'; border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2; }'
     +(ratingPoints!==null
-      ?'.champ-text{position:absolute;right:303px;top:55px;width:185px;height:590px;display:flex;flex-direction:row;align-items:flex-start;justify-content:center;padding-top:18px;gap:8px;z-index:5;}'
-       +'.champ-text span{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);font-size:80px;font-weight:900;font-family:"Arial Black",Arial,sans-serif;color:transparent;-webkit-text-stroke:3px #ffffff;letter-spacing:2px;white-space:nowrap;}'
+      ?'.champ-text{position:absolute;right:303px;top:55px;width:185px;height:590px;display:flex;flex-direction:row;align-items:flex-start;justify-content:center;padding-top:18px;gap:2px;z-index:5;}'
+       +'.champ-text span{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);font-size:80px;font-weight:900;font-family:"Archivo Black","Arial Black",Arial,sans-serif;color:transparent;-webkit-text-stroke:3px #ffffff;letter-spacing:2px;white-space:nowrap;}'
       :'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
        +'  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;'
        +'  font-family:"Arial Black",Arial,sans-serif; color:transparent;'
@@ -534,14 +536,16 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'.ach-tourn { position:absolute; top:254px; left:0; right:0; text-align:center;'
     +'  font-size:15px; font-weight:700; color:#2c3e50; padding:0 14px; line-height:1.5; }'
     +'.medal { position:absolute; top:-20px; left:-40px; width:160px; z-index:1; }'
-    +'.chess { position:absolute; bottom:-40px; right:-50px; width:260px; height:255px; z-index:10; }'
+    +'.chess { position:absolute; bottom:-40px; right:-70px; width:260px; height:295px; z-index:10; }'
     +'.profile { position:absolute; left:48px; bottom:20px; width:210px; height:210px;'
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
-    +'.caissa-box { position:absolute; top:'+(ratingPoints!==null?322:290)+'px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:11px; font-weight:700; color:#0a1825; white-space:nowrap; z-index:3; }'
+    +'.caissa-box { position:absolute; top:'+(ratingPoints!==null?322:290)+'px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:1px; font-weight:700; color:#0a1825; z-index:3; }'
     +'.caissa-logo { width:28px; height:26px; object-fit:contain; flex-shrink:0; }'
     +'.c-red { color:#b83030; }'
+    +'.proud-thunder { font-family:"Thunder","Arial Black",Arial,sans-serif; font-size:15px; font-weight:700; color:#0a1825; text-align:center; line-height:1.15; letter-spacing:1px; }'
+    +'.proud-thunder .c-red { color:#b83030; }'
     +'.rating-pill-wrap{position:absolute;top:220px;left:14px;right:14px;display:flex;align-items:center;gap:14px;z-index:3;}'
     +'.rating-pill{background:#2196F3;color:#fff;border-radius:10px;padding:8px 18px;font-size:24px;font-weight:900;min-width:108px;text-align:center;flex-shrink:0;}'
     +'.points-lbl{font-size:13px;font-weight:900;color:#1a2a3a;line-height:1.5;letter-spacing:0.04em;}'
@@ -660,7 +664,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     '  function di(img,dx,dy,dw,dh){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.drawImage(i2,dx,dy,dw,dh);od();};i2.onerror=od;i2.src=img.src;}',
     '  function dc(img,cx2,cy2,cr){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i2,cx2-cr,cy2-cr,cr*2,cr*2);ctx.restore();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.strokeStyle=ST;ctx.lineWidth=4;ctx.stroke();od();};i2.onerror=od;i2.src=img.src;}',
     '  di(md,-40,-20,160,250);',
-    '  di(ch,325,518,260,255);',
+    '  di(ch,350,480,260,295);',
     '  di(cs,csX,Math.round(bT2+(bH2-26)/2),28,26);',
     '  di(lg,px+(pw-160)/2,py+10,160,80);',
     '  dc(pf,153,575,105);',
@@ -692,8 +696,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     )
     
     +'    <div class="caissa-box">'
-    +'      <img class="caissa-logo" src="'+CSOC_B64+'" alt="">'
-    +'      Proud <span class="c-red">Caissa School Of Chess</span> Student'
+    +'      <div class="proud-thunder">PROUD<br><span class="c-red">CAISSA SCHOOL OF CHESS</span><br>STUDENT</div>'
     +'    </div>'
     +'  </div>'
     +(photoUri ? '  <div class="profile"><img src="'+photoUri+'" alt=""></div>' : '')
@@ -716,6 +719,8 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
   var nameFontSize = longestLine <= 8 ? 52 : longestLine <= 11 ? 44 : longestLine <= 14 ? 36 : 30;
 
   var css = ''
+    +'@import url("https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap");'
+    +'@import url("https://api.fontshare.com/v2/css?f[]=thunder@700&display=swap");'
     +'* { margin:0; padding:0; box-sizing:border-box; }'
     +'body { background:#e8e8e8; }'
     +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:9px 20px;'
@@ -733,7 +738,7 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     +'  background-size:18px 18px; z-index:0; pointer-events:none; }'
     +'.banner { position:absolute; left:0; top:0; width:93px; height:700px;'
     +'  background:#e53935; z-index:2; display:flex; flex-direction:column;'
-    +'  align-items:center; justify-content:center; padding-top:108px; padding-bottom:145px; gap:12px; }'
+    +'  align-items:center; justify-content:center; padding-top:108px; padding-bottom:145px; gap:2px; }'
     +'.banner-word { color:#fff; font-size:72px; font-weight:900; font-style:italic;'
     +'  writing-mode:vertical-rl; transform:rotate(180deg); letter-spacing:7px;'
     +'  line-height:0.88; font-family:"Arial Black",Arial,sans-serif;'
@@ -745,7 +750,7 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     +'.logo-row { display:flex; align-items:center; margin-bottom:14px; margin-top:6px; }'
     +'.cc-logo { height:38px; width:auto; }'
     +'.player-name { font-size:'+nameFontSize+'px; font-weight:900; color:#1a1a1a;'
-    +'  line-height:1.05; margin-bottom:14px; font-family:"Arial Black",Arial,sans-serif;'
+    +'  line-height:1.05; margin-bottom:14px; font-family:"Archivo Black","Arial Black",Arial,sans-serif;'
     +'  word-break:break-word; }'
     +'.divider-line { border:none; border-top:2.5px solid #1a1a1a; margin-bottom:14px; }'
     +'.achieved-row { display:flex; align-items:center; gap:12px; }'
@@ -753,7 +758,7 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     +'  border:2.5px solid #1a1a1a; display:flex; align-items:center; justify-content:center;'
     +'  font-size:22px; flex-shrink:0; }'
     +'.achieved-label { font-size:26px; font-weight:900; color:#1a1a1a; letter-spacing:2px;'
-    +'  font-family:"Arial Black",Arial,sans-serif; }'
+    +'  font-family:"Archivo Black","Arial Black",Arial,sans-serif; }'
     +'.fide-pill { display:inline-block; background:#1a5fb4; color:#fff; padding:5px 18px;'
     +'  border-radius:20px; font-size:11px; font-weight:700; letter-spacing:1px;'
     +'  text-transform:uppercase; margin-top:8px; margin-left:58px; font-family:Arial,sans-serif;'
@@ -761,18 +766,18 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     +'.rating-info { font-size:12px; font-weight:700; color:#2c3e50; margin-top:5px;'
     +'  margin-left:58px; font-family:Arial,sans-serif; align-self:flex-start; }'
     +'.sep { border:none; border-top:1.5px dashed #c0a0a0; margin:14px 0 10px; }'
-    +'.proud-bar { display:flex; align-items:center; gap:9px; background:#fff;'
-    +'  border:1.5px solid #d4af37; border-radius:6px; padding:9px 13px; }'
+    +'.proud-bar { display:flex; align-items:center; justify-content:center; background:#fff;'
+    +'  border:1.5px solid #d4af37; border-radius:6px; padding:6px 13px; }'
     +'.cc-logo-sm { height:22px; width:auto; flex-shrink:0; }'
-    +'.proud-text { font-size:11px; color:#333; font-family:Arial,sans-serif; font-weight:600; }'
-    +'.proud-brand { color:#e53935; font-weight:800; }'
+    +'.proud-text { font-family:"Thunder","Arial Black",Arial,sans-serif; font-size:16px; font-weight:700; color:#0a1825; text-align:center; line-height:1.15; letter-spacing:1px; }'
+    +'.proud-brand { color:#e53935; }'
     +'.bottom-area { margin-top:auto; position:relative; height:158px; flex-shrink:0; }'
     +'.photo-circle { position:absolute; bottom:14px; left:-14px; width:130px; height:130px;'
     +'  border-radius:50%; border:4px solid #fff; box-shadow:0 2px 12px rgba(0,0,0,.18);'
     +'  background:#bbb; display:flex; align-items:center; justify-content:center;'
     +'  overflow:hidden; color:#777; font-size:10px; font-weight:600;'
     +'  font-family:Arial,sans-serif; text-align:center; }'
-    +'.chess-img { position:absolute; bottom:0; right:-8px; height:155px; width:auto; }';
+    +'.chess-img { position:absolute; bottom:0; right:-30px; height:200px; width:auto; }';
 
   var sc = [
     'function dlPNG(){',
@@ -786,9 +791,9 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     '  ctx.font="900 italic 72px Arial,sans-serif";ctx.fillStyle="#fff";',
     '  ctx.textAlign="center";ctx.textBaseline="middle";',
     '  var words2=["RATING","ACHIEVED"];',
-    '  var startY=H/2-72/2-72/2-6;',
+    '  var startY=H/2-72/2-72/2-1;',
     '  for(var wi=0;wi<words2.length;wi++){',
-    '    ctx.save();ctx.translate(46,startY+wi*(72+12));ctx.rotate(-Math.PI/2);',
+    '    ctx.save();ctx.translate(46,startY+wi*(72+2));ctx.rotate(-Math.PI/2);',
     '    ctx.fillText(words2[wi],0,0);ctx.restore();',
     '  }',
     '  var nm=document.querySelector(".player-name").innerText.trim();',
@@ -839,7 +844,7 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     '  var chEl=document.querySelector(".chess-img");',
     '  var lgEl=document.querySelector(".cc-logo");',
     '  di(medEl,4,4,100,100);',
-    '  di(chEl,W-163,H-155,163,155);',
+    '  di(chEl,W-180,H-200,210,200);',
     '  di(lgEl,106,16,100,38);',
     '  var phEl=document.querySelector(".photo-circle img");',
     '  if(phEl){dc(phEl,51,H-79,65);}else{od();}',
@@ -878,8 +883,8 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     + '    <div class="fide-pill">FIDE RATING</div>'
     + (ratingInfo ? '    <div class="rating-info">' + escHtml(ratingInfo) + '</div>' : '')
     + '    <hr class="sep">'
-    + '    <div class="proud-bar">' + logoSmall
-    + '      <div class="proud-text">Proud <span class="proud-brand">Caissa School Of Chess</span> Student</div>'
+    + '    <div class="proud-bar">'
+    + '      <div class="proud-text">PROUD<br><span class="proud-brand">CAISSA SCHOOL OF CHESS</span><br>STUDENT</div>'
     + '    </div>'
     + '    <div class="bottom-area">'
     + '      ' + photoHtml
