@@ -1337,11 +1337,22 @@ function _flushPlayerCallbacks() {
 // Start loading immediately on page load
 loadPlayersFromGAS();
 
-function statusChip(s) {
-  var labels = {1:'Active',2:'Expired',3:'Upcoming',5:'Pause'};
-  var cls    = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
+var STATUS_LABELS = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
+
+function statusLabel(s) {
   var n = Number(s);
-  return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(labels[n]||'—')+'</span>';
+  return STATUS_LABELS[n] || (s ? String(s) : '—');
+}
+
+function statusChip(s) {
+  var cls = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
+  var n = Number(s);
+  // also accept string labels
+  if (isNaN(n)) {
+    var rev = {'Active':1,'Expired':2,'Upcoming':3,'Pause':5};
+    n = rev[s] || 0;
+  }
+  return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(STATUS_LABELS[n]||s||'—')+'</span>';
 }
 
 // Build month options: last 18 months newest-first (e.g. "2026-Jun")
@@ -1403,15 +1414,10 @@ function computePlayerStatus(player, month) {
 function fetchGotRating() {
   var month = selectedMonth();
   if (!month) return;
-  var _monNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var _mparts = String(month).split('-');
-  var _mi = _monNames.indexOf(_mparts[1]);
-  var _firstOfMonth = _mi >= 0 ? new Date(parseInt(_mparts[0]), _mi, 1) : null;
 
-  var srcPlayers = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
-
+  var srcPlayers = PLAYERS_DATA.filter(function(p){ return String(p.fide_id).trim(); });
   if (srcPlayers.length === 0) {
-    setMsg('No players loaded from sheet yet. Wait a moment and try again, or check GAS deployment.', '#c0392b');
+    setMsg('No players loaded from sheet yet. Wait a moment and try again.', '#c0392b');
     return;
   }
 
@@ -1452,9 +1458,8 @@ function fetchGotRating() {
                 var gRap = !prev.rapid_rating     && rap > 0;
                 var gBli = !prev.blitz_rating     && bli > 0;
                 if (gStd || gRap || gBli) {
-                  var effStatus = computePlayerStatus(player, month);
-                  results.push({ player: Object.assign({}, player, { status: effStatus }),
-                    std:std, rap:rap, bli:bli, gStd:gStd, gRap:gRap, gBli:gBli, period:month });
+                  results.push({ player:player, std:std, rap:rap, bli:bli,
+                    gStd:gStd, gRap:gRap, gBli:gBli, period:month });
                 }
               }
             }
@@ -1500,12 +1505,13 @@ function loadGotFromSheet() {
       }
       var playerMap = {};
       PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
+      // Sheet columns: Name(0), FIDE ID(1), Status label(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7)
       var results = rows.map(function(row) {
-        var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1], status:row[2],
-          subscription_end_date: null };
-        return { player: Object.assign({}, p, { status: row[2] }), // use stored status
-          period:row[3], std:Number(row[4])||0, rap:Number(row[5])||0, bli:Number(row[6])||0,
-          gStd:!!(row[4]>0), gRap:!!(row[5]>0), gBli:!!(row[6]>0) };
+        var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1],
+          status:row[2], subscription_end_date:row[3] };
+        return { player: Object.assign({}, p, { status:row[2], subscription_end_date:row[3] }),
+          period:row[4], std:Number(row[5])||0, rap:Number(row[6])||0, bli:Number(row[7])||0,
+          gStd:!!(Number(row[5])>0), gRap:!!(Number(row[6])>0), gBli:!!(Number(row[7])>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
       renderGotRating(results, document.getElementById('got-rating-tbody'));
@@ -1539,8 +1545,8 @@ function saveGotRatingToSheet(results, month) {
       }
       var rows = newResults.map(function(r) {
         var p = r.player;
-        return [p.cr_name||p.player_name, p.fide_id, p.status||'', month,
-                r.std||0, r.rap||0, r.bli||0];
+        return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
+                p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
       });
       var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
       fetch(url)
@@ -1555,8 +1561,8 @@ function saveGotRatingToSheet(results, month) {
       // If pre-check fails, write anyway (GAS dedup will handle it)
       var rows = results.map(function(r) {
         var p = r.player;
-        return [p.cr_name||p.player_name, p.fide_id, p.status||'', month,
-                r.std||0, r.rap||0, r.bli||0];
+        return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
+                p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
       });
       var url = GAS_URL + '?action=write_got_rating&rows=' + encodeURIComponent(JSON.stringify(rows));
       fetch(url).catch(function(){});
@@ -1621,17 +1627,19 @@ function loadRatingStats() {
       // Group by Period → Active/Non-Active → counts per type
       var monthMap = {}; // period → { active: {std,rap,bli}, nonactive: {std,rap,bli} }
       rows.forEach(function(row) {
-        var period  = String(row[3] || '');
-        var status  = Number(row[2]) || 1; // 1=Active, others=Non-Active
-        var std     = Number(row[4]) > 0 ? 1 : 0;
-        var rap     = Number(row[5]) > 0 ? 1 : 0;
-        var bli     = Number(row[6]) > 0 ? 1 : 0;
+        // Sheet cols: Name(0),FIDE ID(1),Status(2),Sub End(3),Period(4),Classical(5),Rapid(6),Blitz(7)
+        var period  = String(row[4] || '');
+        var statusVal = String(row[2] || ''); // label: Active/Expired/Upcoming/Pause
+        var isActive = (statusVal === 'Active' || statusVal === '1');
+        var std     = Number(row[5]) > 0 ? 1 : 0;
+        var rap     = Number(row[6]) > 0 ? 1 : 0;
+        var bli     = Number(row[7]) > 0 ? 1 : 0;
         if (!period) return;
         if (!monthMap[period]) monthMap[period] = {
           active:    { std:0, rap:0, bli:0, total:0 },
           nonactive: { std:0, rap:0, bli:0, total:0 }
         };
-        var bucket = (status === 1) ? monthMap[period].active : monthMap[period].nonactive;
+        var bucket = isActive ? monthMap[period].active : monthMap[period].nonactive;
         bucket.std   += std;
         bucket.rap   += rap;
         bucket.bli   += bli;

@@ -19,7 +19,8 @@ var EXPLORER_URL = 'https://explorer.circlechess.com/1171/';
 
 // ── Sheet headers ────────────────────────────────────────────────────────────
 var PLAYERS_HEADERS = ['Player Name','FIDE ID','Mobile','Subscription Start','Subscription End','Status','Updated At'];
-var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Period','Classical','Rapid','Blitz','Saved At'];
+var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Subscription End','Period','Classical','Rapid','Blitz','Saved At'];
+var STATUS_LABELS   = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
 var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
 
 // ── doGet ────────────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ function doGet(e) {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
       var month = p.month || '';
-      var rows = all.slice(1).filter(function(r){ return !month || String(r[3]) === month; });
+      var rows = all.slice(1).filter(function(r){ return !month || String(r[4]) === month; });
       result = { ok: true, rows: rows };
 
     } else if (action === 'read_all_got_rating') {
@@ -79,7 +80,7 @@ function doGet(e) {
     } else if (action === 'write_got_rating') {
       var rows = JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
-      var added = appendDedup(sh, rows, [1, 3]); // dedup on fide_id + period
+      var added = appendDedup(sh, rows, [1, 4]); // dedup on fide_id + period
       result = { ok: true, added: added, skipped: rows.length - added };
 
     } else if (action === 'read_achievements') {
