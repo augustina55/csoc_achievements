@@ -175,6 +175,7 @@
 <div class="tabs">
   <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
   <div class="tab" onclick="switchTab('got')">🎖 Got Rating <span class="tab-badge" id="badge-got">—</span></div>
+  <div class="tab" onclick="switchTab('stats')">📊 Rating Stats</div>
 </div>
 
 <!-- Achievers -->
@@ -208,7 +209,7 @@
       <span class="achievers-title">🎖 Got Rating</span>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
         <select id="got-month-sel" onchange="loadGotRating()" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
-        <button class="filter-btn active" onclick="fetchGotRating()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
+        <button class="filter-btn active" onclick="confirmFetchFromAPI()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
         <button class="filter-btn" onclick="loadGotFromSheet()" id="got-sheet-btn" style="padding:5px 16px">📋 Load from Sheet</button>
       </div>
     </div>
@@ -222,6 +223,20 @@
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- Rating Stats -->
+<div class="panel" id="panel-stats">
+  <div class="achievers-panel">
+    <div class="achievers-header" style="flex-wrap:wrap;gap:10px">
+      <span class="achievers-title">📊 Rating Stats</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+        <button class="filter-btn active" onclick="loadRatingStats()" style="padding:5px 16px">🔄 Refresh</button>
+      </div>
+    </div>
+    <div id="stats-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Loading…</div>
+    <div id="stats-table-wrap" style="overflow-x:auto;margin-top:8px"></div>
   </div>
 </div>
 
@@ -1252,18 +1267,46 @@ function drawAndDownloadPoster() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  var names = ['achievers','got'];
+  var names = ['achievers','got','stats'];
   document.querySelectorAll('.tab').forEach(function(el, i) {
     el.classList.toggle('active', names[i] === tab);
   });
   document.getElementById('panel-achievers').classList.toggle('active', tab==='achievers');
   document.getElementById('panel-got').classList.toggle('active', tab==='got');
+  document.getElementById('panel-stats').classList.toggle('active', tab==='stats');
   if (tab === 'got') loadGotRating();
+  if (tab === 'stats') loadRatingStats();
 }
 
 // ── Got Rating ────────────────────────────────────────────────────────────────
 // Set this to your deployed Google Apps Script Web App URL (sheet_api.gs)
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbw7fkdq14gEeOyq25JcKNEWu26ieq626Ag1WJnBwppq21GP0z1RVLP-p7g9_gwnDDui-A/exec';
+
+// ── Players loaded from Google Sheet (Players tab) ────────────────────────────
+// Columns: [Player Name, FIDE ID, Mobile, Sub Start, Sub End, Status, Updated At]
+var PLAYERS_DATA = [];
+(function loadPlayersFromGAS() {
+  if (!GAS_URL) return;
+  fetch(GAS_URL + '?action=read_players')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (d.ok && d.rows && d.rows.length > 0) {
+        PLAYERS_DATA = d.rows.map(function(row) {
+          return {
+            player_name:             String(row[0] || ''),
+            fide_id:                 row[1] || '',
+            mobile_number:           row[2] || '',
+            subscription_start_date: row[3] ? String(row[3]).slice(0,10) : '',
+            subscription_end_date:   row[4] ? String(row[4]).slice(0,10) : '',
+            status:                  Number(row[5]) || 1
+          };
+        }).filter(function(p){ return p.fide_id; });
+        var el = document.getElementById('stat-players');
+        if (el) el.textContent = PLAYERS_DATA.length;
+      }
+    })
+    .catch(function(){});
+})();
 
 function statusChip(s) {
   var labels = {1:'Active',2:'Expired',3:'Upcoming',5:'Pause'};
@@ -1295,16 +1338,38 @@ function setMsg(txt, color) {
   if (el) { el.textContent = txt; el.style.color = color || '#888'; }
 }
 
+// ── Confirm before fetching from API ─────────────────────────────────────────
+function confirmFetchFromAPI() {
+  var month = selectedMonth();
+  if (!month) { setMsg('Please select a month first.', '#c0392b'); return; }
+  if (!confirm('Fetch fresh FIDE rating data from API for ' + month + '?\n\nThis calls the FIDE API for ALL players and saves new results to the sheet.\nClick OK to proceed, Cancel to abort.')) return;
+  fetchGotRating();
+}
+
+// ── Compute player status based on subscription_end_date vs selected month ────
+function computePlayerStatus(player, month) {
+  var end = player.subscription_end_date;
+  if (!end) return player.status;
+  var monNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var parts = String(month).split('-'); // ['2026','Jun']
+  var mi = monNames.indexOf(parts[1]);
+  if (mi === -1) return player.status;
+  var firstOfMonth = new Date(parseInt(parts[0]), mi, 1);
+  var endDate = new Date(end);
+  return endDate >= firstOfMonth ? 1 : 2; // 1=Active, 2=Non-Active/Expired
+}
+
 // ── Fetch from FIDE API for the selected month ────────────────────────────────
 function fetchGotRating() {
   var month = selectedMonth();
   if (!month) return;
-  var players = DATA.filter(function(p){ return p.fide_id; });
-  var total = players.length, done = 0, results = [];
-  var LIMIT = 10, running = 0, queue = players.slice();
+  // Use players from GAS Players sheet if loaded, else fall back to embedded DATA
+  var srcPlayers = (PLAYERS_DATA.length > 0 ? PLAYERS_DATA : DATA).filter(function(p){ return p.fide_id; });
+  var total = srcPlayers.length, done = 0, results = [];
+  var LIMIT = 10, running = 0, queue = srcPlayers.slice();
   var tbody = document.getElementById('got-rating-tbody');
   tbody.innerHTML = '';
-  setMsg('Fetching 0 / ' + total + '…');
+  setMsg('Fetching 0 / ' + total + ' players from FIDE API…');
 
   function next() {
     while (running < LIMIT && queue.length > 0) {
@@ -1315,7 +1380,6 @@ function fetchGotRating() {
           .then(function(hist) {
             done++; running--;
             if (hist && hist.length > 0) {
-              // Sort oldest-first to find "got" logic for selected month
               var sorted = hist.slice().sort(function(a,b){
                 return new Date(a.period+'-01') - new Date(b.period+'-01');
               });
@@ -1330,7 +1394,10 @@ function fetchGotRating() {
                 var gRap = !(prev.rapid_rating)     && rap > 0;
                 var gBli = !(prev.blitz_rating)     && bli > 0;
                 if (gStd || gRap || gBli) {
-                  results.push({ player:player, std:std, rap:rap, bli:bli,
+                  // Compute status based on subscription_end_date
+                  var effStatus = computePlayerStatus(player, month);
+                  var enriched = Object.assign({}, player, { status: effStatus });
+                  results.push({ player:enriched, std:std, rap:rap, bli:bli,
                     gStd:gStd, gRap:gRap, gBli:gBli, period:month });
                 }
               }
@@ -1339,7 +1406,7 @@ function fetchGotRating() {
             renderGotRating(results, tbody);
             if (done === total) {
               document.getElementById('badge-got').textContent = results.length;
-              setMsg(results.length + ' players got new FIDE rating in ' + month, '#1e7a3e');
+              setMsg('✓ ' + results.length + ' players got new FIDE rating in ' + month + ' — saving to sheet…', '#1e7a3e');
               if (GAS_URL) saveGotRatingToSheet(results, month);
             }
             next();
@@ -1351,37 +1418,41 @@ function fetchGotRating() {
   next();
 }
 
-// ── Load from Sheet → auto-fetch API if sheet empty for this month ────────────
+// ── Load from Sheet (no auto-fetch fallback) ──────────────────────────────────
 function loadGotFromSheet() {
   var month = selectedMonth();
-  if (!GAS_URL) { fetchGotRating(); return; }
-  setMsg('Checking sheet for ' + month + '…');
+  if (!GAS_URL) { setMsg('GAS_URL not configured.', '#c0392b'); return; }
+  setMsg('Loading from sheet for ' + month + '…');
   fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
     .then(function(d) {
-      if (!d.ok) { setMsg('Sheet error: ' + d.error + ' — fetching from API…', '#f7a440'); fetchGotRating(); return; }
+      if (!d.ok) { setMsg('Sheet error: ' + (d.error || 'unknown'), '#c0392b'); return; }
       var rows = d.rows || [];
       if (rows.length === 0) {
-        // Nothing in sheet for this month — auto-fetch from API and save
-        setMsg('No data in sheet for ' + month + ' — fetching from FIDE API…');
-        fetchGotRating();
+        document.getElementById('got-rating-tbody').innerHTML =
+          '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No data in sheet for ' + month + '. Click "Fetch from API" to load.</td></tr>';
+        document.getElementById('badge-got').textContent = '0';
+        setMsg('No records found in sheet for ' + month + '. Use "Fetch from API" to load.', '#888');
         return;
       }
       var playerMap = {};
       DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
+      PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
       var results = rows.map(function(row) {
-        var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1], status:row[2] };
-        return { player:p, period:row[3], std:Number(row[4])||0, rap:Number(row[5])||0, bli:Number(row[6])||0,
+        var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1], status:row[2],
+          subscription_end_date: null };
+        return { player: Object.assign({}, p, { status: row[2] }), // use stored status
+          period:row[3], std:Number(row[4])||0, rap:Number(row[5])||0, bli:Number(row[6])||0,
           gStd:!!(row[4]>0), gRap:!!(row[5]>0), gBli:!!(row[6]>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
       renderGotRating(results, document.getElementById('got-rating-tbody'));
       setMsg('✓ Loaded ' + results.length + ' records from sheet for ' + month, '#1e7a3e');
     })
-    .catch(function(){ setMsg('Sheet unavailable — fetching from FIDE API…'); fetchGotRating(); });
+    .catch(function(e){ setMsg('Could not reach sheet. Check GAS_URL.', '#c0392b'); });
 }
 
-// ── Auto-load on tab switch or month change: sheet first, API as fallback ─────
+// ── On tab switch / month change: load from sheet only ────────────────────────
 function loadGotRating() {
   loadGotFromSheet();
 }
@@ -1465,6 +1536,98 @@ function saveAchievementsToSheet() {
   sendBatch(0);
 }
 if (GAS_URL) saveAchievementsToSheet();
+
+// ── Rating Stats tab ──────────────────────────────────────────────────────────
+function loadRatingStats() {
+  var msg = document.getElementById('stats-msg');
+  var wrap = document.getElementById('stats-table-wrap');
+  if (!GAS_URL) { if (msg) msg.textContent = 'GAS_URL not configured.'; return; }
+  if (msg) { msg.textContent = 'Loading all Got Rating data from sheet…'; msg.style.color = '#888'; }
+  if (wrap) wrap.innerHTML = '';
+
+  fetch(GAS_URL + '?action=read_all_got_rating')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (!d.ok) { if (msg) { msg.textContent = 'Error: ' + d.error; msg.style.color = '#c0392b'; } return; }
+      var rows = d.rows || [];
+      if (rows.length === 0) {
+        if (msg) msg.textContent = 'No Got Rating data found in sheet.';
+        return;
+      }
+
+      // Row columns: [Name, FIDE ID, Status, Period, Classical, Rapid, Blitz, Saved At]
+      // Group by Period → Active/Non-Active → counts per type
+      var monthMap = {}; // period → { active: {std,rap,bli}, nonactive: {std,rap,bli} }
+      rows.forEach(function(row) {
+        var period  = String(row[3] || '');
+        var status  = Number(row[2]) || 1; // 1=Active, others=Non-Active
+        var std     = Number(row[4]) > 0 ? 1 : 0;
+        var rap     = Number(row[5]) > 0 ? 1 : 0;
+        var bli     = Number(row[6]) > 0 ? 1 : 0;
+        if (!period) return;
+        if (!monthMap[period]) monthMap[period] = {
+          active:    { std:0, rap:0, bli:0, total:0 },
+          nonactive: { std:0, rap:0, bli:0, total:0 }
+        };
+        var bucket = (status === 1) ? monthMap[period].active : monthMap[period].nonactive;
+        bucket.std   += std;
+        bucket.rap   += rap;
+        bucket.bli   += bli;
+        bucket.total += (std || rap || bli ? 1 : 0);
+      });
+
+      // Sort months descending (YYYY-Mon format)
+      var monOrder = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var periods = Object.keys(monthMap).sort(function(a, b) {
+        var ap = a.split('-'), bp = b.split('-');
+        var ay = parseInt(ap[0])||0, by = parseInt(bp[0])||0;
+        if (ay !== by) return by - ay;
+        return monOrder.indexOf(bp[1]) - monOrder.indexOf(ap[1]);
+      });
+
+      var html = '<table style="border-collapse:collapse;min-width:720px;font-size:0.84rem">'
+        + '<thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">'
+        + '<th rowspan="2" style="padding:10px 14px;text-align:left;border:1px solid var(--border)">Month</th>'
+        + '<th colspan="4" style="padding:8px 14px;text-align:center;background:#d1fae5;border:1px solid var(--border)">Active</th>'
+        + '<th colspan="4" style="padding:8px 14px;text-align:center;background:#fee2e2;border:1px solid var(--border)">Non-Active</th>'
+        + '</tr><tr style="background:var(--surface2)">'
+        + '<th style="padding:7px 12px;border:1px solid var(--border);white-space:nowrap">Classical</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border)">Rapid</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border)">Blitz</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border);background:#d1fae5">Total</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border);white-space:nowrap">Classical</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border)">Rapid</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border)">Blitz</th>'
+        + '<th style="padding:7px 12px;border:1px solid var(--border);background:#fee2e2">Total</th>'
+        + '</tr></thead><tbody>';
+
+      periods.forEach(function(p) {
+        var d = monthMap[p];
+        var grandTotal = d.active.total + d.nonactive.total;
+        html += '<tr style="border-bottom:1px solid var(--border)">'
+          + '<td style="padding:9px 14px;font-weight:600;border:1px solid var(--border)">' + p + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.std || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.rap || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.bli || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border);background:#f0fdf4;font-weight:700;color:#059669">' + (d.active.total || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.std || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.rap || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.bli || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border);background:#fff5f5;font-weight:700;color:#dc2626">' + (d.nonactive.total || '—') + '</td>'
+          + '</tr>';
+      });
+
+      html += '</tbody></table>';
+      if (wrap) wrap.innerHTML = html;
+      if (msg) {
+        msg.textContent = 'Showing ' + periods.length + ' months, ' + rows.length + ' records total';
+        msg.style.color = '#1e7a3e';
+      }
+    })
+    .catch(function() {
+      if (msg) { msg.textContent = 'Could not load stats. Check GAS_URL.'; msg.style.color = '#c0392b'; }
+    });
+}
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderGotRating(results, tbody) {

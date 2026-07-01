@@ -2,29 +2,27 @@
  * sheet_api.gs — CSOC Achievements Google Sheets API
  *
  * HOW TO DEPLOY:
- *   1. Open your GAS project (same one as fide_rating.gs)
- *   2. Add this as a new script file
- *   3. Click Deploy → New deployment → Web app
- *      Execute as: Me
- *      Who has access: Anyone
- *   4. Copy the Web App URL and paste it into build_html.js as GAS_URL
- *   5. Rebuild: node build_html.js
+ *   1. Open your GAS project
+ *   2. Replace the contents of sheet_api.gs with this file
+ *   3. Run setupDailySync() once to create the 1pm daily trigger
+ *   4. Deploy → New deployment → Web app (Execute as: Me, Access: Anyone)
+ *   5. Copy the Web App URL → paste as GAS_URL in build_html.js
  *
- * Sheets required in the spreadsheet:
- *   "Got Rating"   — stores Got Rating records
- *   "Achivements"  — stores Achievement records (note: matches existing sheet name)
+ * Sheets required (auto-created if missing):
+ *   "Players"       — master player list (synced daily from circlechess explorer)
+ *   "Got Rating"    — monthly FIDE first-rating records
+ *   "Achivements"   — achievement records (note: matches existing sheet name)
  */
 
 var SS_ID = '1oXqceUMlEYF9mpHyBteh8lD-gb69EsYIvNqOune31mI';
+var EXPLORER_URL = 'https://explorer.circlechess.com/1171/';
 
-// ── Got Rating headers ──────────────────────────────────────────────────────
-var GOT_HEADERS  = ['Player Name','FIDE ID','Status','Period','Classical','Rapid','Blitz','Saved At'];
+// ── Sheet headers ────────────────────────────────────────────────────────────
+var PLAYERS_HEADERS = ['Player Name','FIDE ID','Mobile','Subscription Start','Subscription End','Status','Updated At'];
+var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Period','Classical','Rapid','Blitz','Saved At'];
+var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
 
-// ── Achievements headers ────────────────────────────────────────────────────
-// Columns: Player Name | FIDE ID | Tournament | Rank | Rating ± | Rated | Date | Saved At
-var ACH_HEADERS  = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
-
-// ── doGet ───────────────────────────────────────────────────────────────────
+// ── doGet ────────────────────────────────────────────────────────────────────
 function doGet(e) {
   var p = e.parameter;
   var result;
@@ -32,17 +30,30 @@ function doGet(e) {
     var ss = SpreadsheetApp.openById(SS_ID);
     var action = p.action;
 
-    if (action === 'read_got_rating') {
-      // Returns rows matching a specific month (Period column = index 3)
+    if (action === 'read_players') {
+      var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
+      var all = sh.getDataRange().getValues();
+      result = { ok: true, rows: all.slice(1), count: all.length - 1 };
+
+    } else if (action === 'write_players') {
+      var rows = JSON.parse(p.rows || '[]');
+      var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
+      var counts = upsertPlayers(sh, rows);
+      result = { ok: true, added: counts.added, updated: counts.updated };
+
+    } else if (action === 'read_got_rating') {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
       var month = p.month || '';
-      // Skip header row; filter by period
       var rows = all.slice(1).filter(function(r){ return !month || String(r[3]) === month; });
       result = { ok: true, rows: rows };
 
+    } else if (action === 'read_all_got_rating') {
+      var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
+      var all = sh.getDataRange().getValues();
+      result = { ok: true, rows: all.slice(1) };
+
     } else if (action === 'write_got_rating') {
-      // rows: [[name, fide_id, status, period, std, rap, bli], ...]
       var rows = JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var added = appendDedup(sh, rows, [1, 3]); // dedup on fide_id + period
@@ -54,10 +65,9 @@ function doGet(e) {
       result = { ok: true, rows: all.slice(1) };
 
     } else if (action === 'write_achievements') {
-      // rows: [[name, fide_id, tournament, rank, rating_change, rated, date], ...]
       var rows = JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
-      var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id (col1) + tournament (col2)
+      var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id + tournament
       result = { ok: true, added: added, skipped: rows.length - added };
 
     } else {
@@ -72,6 +82,95 @@ function doGet(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ── Daily sync from circlechess.com/1171 ─────────────────────────────────────
+function syncPlayersFromExplorer() {
+  Logger.log('=== syncPlayersFromExplorer START ===');
+  try {
+    var resp = UrlFetchApp.fetch(EXPLORER_URL, {
+      muteHttpExceptions: true,
+      headers: { 'Accept': 'application/json, text/html' }
+    });
+
+    if (resp.getResponseCode() !== 200) {
+      Logger.log('HTTP error: ' + resp.getResponseCode());
+      return;
+    }
+
+    var text = resp.getContentText();
+    var players = [];
+
+    // Try JSON first
+    try {
+      var parsed = JSON.parse(text);
+      var arr = Array.isArray(parsed) ? parsed : (parsed.data || parsed.players || parsed.results || []);
+      players = arr.map(function(p) {
+        return [
+          p.player_name || p.name || p.Name || '',
+          p.fide_id    || p.fideId || p.fide || '',
+          p.mobile_number || p.mobile || p.phone || '',
+          p.subscription_start_date || p.start_date || p.startDate || '',
+          p.subscription_end_date   || p.end_date   || p.endDate   || '',
+          p.status !== undefined ? p.status : 1
+        ];
+      }).filter(function(r){ return r[0] || r[1]; });
+
+    } catch (_) {
+      // Parse HTML table
+      var rows = text.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+      var isFirst = true;
+      rows.forEach(function(row) {
+        if (isFirst) { isFirst = false; return; } // skip header row
+        var cells = [];
+        var tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi, m;
+        while ((m = tdRe.exec(row)) !== null) {
+          cells.push(m[1].replace(/<[^>]+>/g, '').trim());
+        }
+        // Expected columns: Name, FIDE ID, Mobile, Sub Start, Sub End, Status
+        if (cells.length >= 2 && (cells[0] || cells[1])) {
+          players.push([
+            cells[0] || '',  // name
+            cells[1] || '',  // fide_id
+            cells[2] || '',  // mobile
+            cells[3] || '',  // sub start
+            cells[4] || '',  // sub end
+            cells[5] || 1    // status
+          ]);
+        }
+      });
+    }
+
+    if (players.length === 0) {
+      Logger.log('No players parsed from ' + EXPLORER_URL);
+      return;
+    }
+
+    var ss = SpreadsheetApp.openById(SS_ID);
+    var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
+    var counts = upsertPlayers(sh, players);
+    Logger.log('Synced ' + players.length + ' players: ' + counts.added + ' added, ' + counts.updated + ' updated');
+
+  } catch (e) {
+    Logger.log('syncPlayersFromExplorer error: ' + e.toString());
+  }
+  Logger.log('=== syncPlayersFromExplorer END ===');
+}
+
+// ── Setup daily 1pm trigger — run this ONCE manually ─────────────────────────
+function setupDailySync() {
+  // Remove any existing triggers for syncPlayersFromExplorer
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'syncPlayersFromExplorer') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('syncPlayersFromExplorer')
+    .timeBased()
+    .everyDays(1)
+    .atHour(13) // 1pm (script timezone)
+    .create();
+  Logger.log('Daily sync trigger created at 1pm');
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getOrCreateSheet(ss, name, headers) {
@@ -84,13 +183,39 @@ function getOrCreateSheet(ss, name, headers) {
 }
 
 /**
+ * Upsert players by FIDE ID (column index 1). Adds new rows, updates existing.
+ */
+function upsertPlayers(sh, newRows) {
+  var existing = sh.getDataRange().getValues();
+  var fideToRowNum = {}; // fide_id → 1-based sheet row number
+  for (var i = 1; i < existing.length; i++) {
+    var fid = String(existing[i][1]).trim();
+    if (fid) fideToRowNum[fid] = i + 1;
+  }
+  var added = 0, updated = 0;
+  var now = new Date();
+  newRows.forEach(function(row) {
+    var fid = String(row[1]).trim();
+    if (!fid) return;
+    var withTs = row.slice(0, 6).concat([now]); // ensure 7 columns
+    if (fideToRowNum[fid]) {
+      sh.getRange(fideToRowNum[fid], 1, 1, withTs.length).setValues([withTs]);
+      updated++;
+    } else {
+      sh.appendRow(withTs);
+      fideToRowNum[fid] = sh.getLastRow();
+      added++;
+    }
+  });
+  return { added: added, updated: updated };
+}
+
+/**
  * Appends rows that aren't already present, deduplicating on the given column indices.
- * Returns the count of newly added rows.
  */
 function appendDedup(sh, newRows, keyColIndices) {
   var existing = sh.getDataRange().getValues();
   var seen = new Set();
-  // Build set of existing keys from data rows (skip header)
   for (var i = 1; i < existing.length; i++) {
     seen.add(makeKey(existing[i], keyColIndices));
   }
@@ -99,7 +224,7 @@ function appendDedup(sh, newRows, keyColIndices) {
   newRows.forEach(function(row) {
     var key = makeKey(row, keyColIndices);
     if (!seen.has(key)) {
-      sh.appendRow(row.concat([now])); // append Saved At timestamp
+      sh.appendRow(row.concat([now]));
       seen.add(key);
       added++;
     }
