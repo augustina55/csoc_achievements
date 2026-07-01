@@ -185,9 +185,11 @@
       <span class="achievers-title">★ Achievers</span>
       <div id="ach-save-msg" style="font-size:0.81rem;color:#888;"></div>
       <div class="filter-row">
+        <select id="ach-month-sel" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
+        <button class="filter-btn active" onclick="confirmFetchAchievements()" id="ach-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
+        <button class="filter-btn" onclick="loadAchievementsFromSheet()" id="ach-sheet-btn" style="padding:5px 16px">📋 Load from Sheet</button>
         <button class="filter-btn active" id="fbtn-all"   onclick="setFilter('all')">All</button>
         <button class="filter-btn"        id="fbtn-rated" onclick="setFilter('rated')">FIDE / Rated</button>
-        <button class="filter-btn" onclick="saveAchievementsToSheet()" style="padding:5px 16px">💾 Save to Sheet</button>
       </div>
     </div>
     <div class="table-wrap">
@@ -196,7 +198,7 @@
           <th>#</th><th>Player</th><th>Status</th><th>Tournament</th><th>Date</th>
           <th>Rank</th><th>Rating ±</th><th>Type</th><th></th>
         </tr></thead>
-        <tbody id="achievers-tbody"></tbody>
+        <tbody id="achievers-tbody"><tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">Select a month and click Load from Sheet.</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -355,45 +357,211 @@ function statusChip(s) {
 }
 
 var currentFilter = 'all';
+var ACH_ROWS_LIVE = []; // dynamically loaded achiever rows
+
+(function buildAchMonthSel() {
+  var sel = document.getElementById('ach-month-sel');
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var now = new Date();
+  var curYear = now.getFullYear(), curMon = now.getMonth();
+  var opts = [];
+  for (var y = curYear; y >= 2026; y--) {
+    var mEnd = (y === curYear) ? curMon : 11;
+    for (var m = mEnd; m >= (y === 2026 ? 0 : 0); m--) {
+      opts.push(y + '-' + MN[m]);
+    }
+  }
+  sel.innerHTML = opts.map(function(v){ return '<option value="'+v+'">'+v+'</option>'; }).join('');
+  sel.onchange = function(){ loadAchievementsFromSheet(); };
+})();
+
+function selectedAchMonth() { var s = document.getElementById('ach-month-sel'); return s ? s.value : ''; }
+
+function setAchMsg(txt, color) {
+  var el = document.getElementById('ach-save-msg');
+  if (el) { el.textContent = txt; el.style.color = color || '#888'; }
+}
 
 function setFilter(f) {
   currentFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(function(b) {
-    b.classList.remove('active', 'active-green');
+  ['all','rated'].forEach(function(id) {
+    var b = document.getElementById('fbtn-' + id);
+    if (b) { b.classList.remove('active','active-green'); }
   });
   var btn = document.getElementById('fbtn-' + f);
   if (btn) btn.classList.add(f === 'rated' ? 'active-green' : 'active');
-  renderAchieversTable();
+  renderAchieversTable(ACH_ROWS_LIVE);
 }
 
-function renderAchieversTable() {
-  var rows = ACHIEVER_ROWS.filter(function(r) {
-    if (currentFilter === 'rank')  return r.type === 'rank' || r.type === 'both';
+function renderAchieversTable(data) {
+  var rows = (data || []).filter(function(r) {
     if (currentFilter === 'rated') return r.is_rated;
     return true;
   });
-  document.getElementById('achievers-tbody').innerHTML = rows.map(function(r, i) {
-    var origIdx  = ACHIEVER_ROWS.indexOf(r);
-    var tn       = r.tournament_name.length > 38 ? r.tournament_name.slice(0,38)+'…' : r.tournament_name;
-    var typeLbl  = r.type==='both' ? 'Top 9 + Rating' : (r.type==='rank' ? 'Top 9' : '+Rating');
-    var typeCls  = r.type==='rating' ? 'type-rating' : (r.type==='both' ? 'type-both' : 'type-rank');
-    var ratedTag = r.is_rated ? '<span class="rated-pill">FIDE</span>' : '';
-    return `<tr>
-      <td style="color:var(--text2);font-size:0.79rem">${i+1}</td>
-      <td style="font-weight:600;white-space:nowrap">${r.player_name}</td>
-      <td>${statusChip(r.status)}</td>
-      <td>
-        <a href="${r.player_link||'#'}" target="_blank" style="color:var(--text);text-decoration:none" title="${r.tournament_name}">${tn}</a>${ratedTag}
-      </td>
-      <td style="white-space:nowrap;color:var(--text2)">${fmtDate(r.date)}</td>
-      <td>${r.rank ? rankChip(r.rank) : '<span class="na">—</span>'}</td>
-      <td>${r.is_rated ? ratingChange(r.rating_change) : '<span class="na">—</span>'}</td>
-      <td><span class="type-badge ${typeCls}">${typeLbl}</span></td>
-      <td><button class="btn-poster" onclick="openPosterModal(${origIdx})">🖼 Poster</button></td>
-    </tr>`;
+  var tbody = document.getElementById('achievers-tbody');
+  if (!tbody) return;
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(r, i) {
+    var tn      = (r.tournament_name||'').length > 38 ? (r.tournament_name||'').slice(0,38)+'…' : (r.tournament_name||'');
+    var rank    = Number(r.rank) || null;
+    var rc      = r.rating_change !== null && r.rating_change !== undefined && r.rating_change !== '' ? Number(r.rating_change) : null;
+    var isRated = r.is_rated || r.rated === 'RATED';
+    var type    = (rank && rank <= 9) ? ((rc && rc >= 30) ? 'both' : 'rank') : 'rating';
+    var typeLbl = type==='both' ? 'Top 9 + Rating' : (type==='rank' ? 'Top 9' : '+Rating');
+    var typeCls = type==='rating' ? 'type-rating' : (type==='both' ? 'type-both' : 'type-rank');
+    var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
+    return '<tr>' +
+      '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
+      '<td style="font-weight:600;white-space:nowrap">'+(r.player_name||'')+'</td>' +
+      '<td>'+statusLabel(r.status)+'</td>' +
+      '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--text);text-decoration:none" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
+      '<td style="white-space:nowrap;color:var(--text2)">'+fmtDate(r.date||'')+'</td>' +
+      '<td>'+(rank ? rankChip(rank) : '<span class="na">—</span>')+'</td>' +
+      '<td>'+(isRated ? ratingChange(rc) : '<span class="na">—</span>')+'</td>' +
+      '<td><span class="type-badge '+typeCls+'">'+typeLbl+'</span></td>' +
+      '<td><button class="btn-poster" onclick="openAchPoster('+i+')">🖼 Poster</button></td>' +
+      '</tr>';
   }).join('');
 }
-renderAchieversTable();
+
+function openAchPoster(i) {
+  var r = ACH_ROWS_LIVE[i];
+  if (!r) return;
+  // Map to the format openPosterModal expects
+  var idx = ACHIEVER_ROWS.findIndex(function(ar){ return ar.fide_id == r.fide_id && ar.tournament_name === r.tournament_name; });
+  if (idx >= 0) openPosterModal(idx);
+  else { currentRow = Object.assign({ type:'rank' }, r); openPosterModal(-1); }
+}
+
+// ── Load Achievements from Sheet ──────────────────────────────────────────────
+function loadAchievementsFromSheet() {
+  var month = selectedAchMonth();
+  if (!month) return;
+  if (!GAS_URL) { setAchMsg('GAS_URL not configured.', '#c0392b'); return; }
+  setAchMsg('Loading from sheet for ' + month + '…', '#888');
+  fetch(GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month))
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (!d.ok) { setAchMsg('Sheet error: ' + (d.error||'unknown'), '#c0392b'); return; }
+      var rows = d.rows || [];
+      if (rows.length === 0) {
+        document.getElementById('achievers-tbody').innerHTML =
+          '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No data in sheet for '+month+'. Click "Fetch from API" to load.</td></tr>';
+        setAchMsg('No records for ' + month + '.', '#888');
+        ACH_ROWS_LIVE = [];
+        return;
+      }
+      var playerMap = {};
+      PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
+      // Sheet cols: Name(0), FIDE ID(1), Tournament(2), Rank(3), Rating±(4), Rated(5), Date(6)
+      ACH_ROWS_LIVE = rows.map(function(row) {
+        var pd = playerMap[String(row[1])] || {};
+        return {
+          player_name: row[0] || pd.player_name || '',
+          fide_id: row[1],
+          status: pd.status || 1,
+          tournament_name: row[2] || '',
+          tournament_link: null,
+          rank: row[3] !== '' ? Number(row[3]) : null,
+          rating_change: row[4] !== '' ? Number(row[4]) : null,
+          is_rated: row[5] === 'RATED',
+          rated: row[5],
+          date: row[6] || '',
+        };
+      });
+      renderAchieversTable(ACH_ROWS_LIVE);
+      document.getElementById('badge-ach') && (document.getElementById('badge-ach').textContent = ACH_ROWS_LIVE.length);
+      setAchMsg('✓ Loaded ' + ACH_ROWS_LIVE.length + ' records from sheet for ' + month, '#1e7a3e');
+    })
+    .catch(function(e){ setAchMsg('Could not load from sheet.', '#c0392b'); });
+}
+
+// ── Fetch Achievements from chess-results API ─────────────────────────────────
+function confirmFetchAchievements() {
+  var month = selectedAchMonth();
+  if (!month) { setAchMsg('Please select a month first.', '#c0392b'); return; }
+  if (!confirm('Fetch tournament results from chess-results.com for ' + month + '?\n\nThis calls the chess-results API for ALL active players and saves to the sheet.\nClick OK to proceed.')) return;
+  if (PLAYERS_DATA.length === 0) {
+    setAchMsg('Loading players…', '#888');
+    loadPlayersFromGAS(function(){ fetchAchievementsFromAPI(); });
+    return;
+  }
+  fetchAchievementsFromAPI();
+}
+
+function fetchAchievementsFromAPI() {
+  var month = selectedAchMonth();
+  if (!month) return;
+  var _mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var _p = month.split('-');
+  var year = parseInt(_p[0]), monIdx = _mn.indexOf(_p[1]);
+  var lastDay = new Date(year, monIdx + 1, 0).getDate();
+  var pad = function(n){ return n < 10 ? '0'+n : ''+n; };
+  var fromDate = '01.' + pad(monIdx+1) + '.' + year;
+  var toDate   = lastDay + '.' + pad(monIdx+1) + '.' + year;
+
+  var firstOfMonth = new Date(year, monIdx, 1);
+  var srcPlayers = PLAYERS_DATA.filter(function(p) {
+    if (!String(p.fide_id).trim()) return false;
+    var st = Number(p.status);
+    if (st === 5) return true;
+    if (st === 1) { if (!p.subscription_start_date) return true; return new Date(p.subscription_start_date) <= firstOfMonth; }
+    if (st === 2) {
+      if (!p.subscription_start_date || !p.subscription_end_date) return false;
+      return new Date(p.subscription_start_date) <= firstOfMonth && new Date(p.subscription_end_date) >= firstOfMonth;
+    }
+    return false;
+  });
+
+  if (srcPlayers.length === 0) { setAchMsg('No players match filter for ' + month, '#c0392b'); return; }
+
+  var total = srcPlayers.length, done = 0, apiErrors = 0, allRows = [];
+  var LIMIT = 5, running = 0, queue = srcPlayers.slice();
+  setAchMsg('Fetching ' + total + ' players from chess-results… (0/' + total + ')', '#888');
+  document.getElementById('achievers-tbody').innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">Fetching…</td></tr>';
+
+  function next() {
+    while (running < LIMIT && queue.length > 0) {
+      var p = queue.shift(); running++;
+      (function(player) {
+        fetch('/api/chess-results?fide_id=' + encodeURIComponent(player.fide_id) +
+              '&from_date=' + encodeURIComponent(fromDate) + '&to_date=' + encodeURIComponent(toDate))
+          .then(function(r){ return r.json(); })
+          .then(function(resp) {
+            done++; running--;
+            if (resp && resp.ok && resp.tournaments && resp.tournaments.length > 0) {
+              resp.tournaments.forEach(function(t) {
+                allRows.push({
+                  player_name: player.player_name, fide_id: player.fide_id,
+                  status: player.status,
+                  tournament_name: t.tournament_name, tournament_link: t.tournament_link,
+                  rank: t.rank, rating_change: t.rating_change, is_rated: t.is_rated,
+                  date: t.date,
+                });
+              });
+            } else if (!resp || !resp.ok) { apiErrors++; }
+            setAchMsg('Fetching ' + done + '/' + total + ' — found ' + allRows.length + ' results so far…', '#888');
+            if (done === total) finish();
+            next();
+          })
+          .catch(function(){ done++; running--; apiErrors++; if(done===total) finish(); next(); });
+      })(p);
+    }
+  }
+
+  function finish() {
+    ACH_ROWS_LIVE = allRows;
+    renderAchieversTable(ACH_ROWS_LIVE);
+    var errNote = apiErrors > 0 ? ' (' + apiErrors + ' errors)' : '';
+    setAchMsg('✓ Found ' + allRows.length + ' results for ' + month + errNote + ' — saving to sheet…', '#1e7a3e');
+    if (allRows.length > 0) saveAchievementsToSheet(allRows, month);
+  }
+
+  next();
+}
 
 // ── Poster modal ──────────────────────────────────────────────────────────────
 var currentRow   = null;
@@ -1291,6 +1459,7 @@ function switchTab(tab) {
   document.getElementById('panel-achievers').classList.toggle('active', tab==='achievers');
   document.getElementById('panel-got').classList.toggle('active', tab==='got');
   document.getElementById('panel-stats').classList.toggle('active', tab==='stats');
+  if (tab === 'achievers') loadAchievementsFromSheet();
   if (tab === 'got') loadGotRating();
   if (tab === 'stats') loadRatingStats();
 }
@@ -1614,14 +1783,14 @@ function setAchMsg(txt, color) {
   var el = document.getElementById('ach-save-msg');
   if (el) { el.textContent = txt; el.style.color = color || '#888'; }
 }
-function saveAchievementsToSheet() {
+function saveAchievementsToSheet(srcRows, month) {
   if (!GAS_URL) { setAchMsg('GAS_URL not set', '#c0392b'); return; }
-  setAchMsg('Saving to sheet…', '#888');
-  // Columns: Player Name, FIDE ID, Tournament, Rank, Rating ±, Rated, Date
-  var allRows = ACHIEVER_ROWS.map(function(r) {
-    return [r.player_name, r.fide_id, r.tournament_name,
-            r.rank||'', r.rating_change!==null?r.rating_change:'',
-            r.is_rated?'RATED':'', r.date||''];
+  var dataRows = (srcRows || ACH_ROWS_LIVE || []);
+  if (dataRows.length === 0) return;
+  var allRows = dataRows.map(function(r) {
+    return [r.player_name, r.fide_id, r.tournament_name||'',
+            r.rank||'', r.rating_change!==null && r.rating_change!==undefined ? r.rating_change : '',
+            r.is_rated ? 'RATED' : '', r.date||''];
   });
   var BATCH = 50, totalAdded = 0, batches = Math.ceil(allRows.length / BATCH), done = 0;
   function sendBatch(i) {
@@ -1641,7 +1810,6 @@ function saveAchievementsToSheet() {
   }
   sendBatch(0);
 }
-if (GAS_URL) saveAchievementsToSheet();
 
 // ── Rating Stats tab ──────────────────────────────────────────────────────────
 function loadRatingStats() {

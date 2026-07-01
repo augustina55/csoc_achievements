@@ -104,7 +104,25 @@ function _handle(p) {
     } else if (action === 'read_achievements') {
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var all = sh.getDataRange().getValues();
-      result = { ok: true, rows: all.slice(1) };
+      var month = p.month || '';
+      var rows = all.slice(1);
+      if (month) {
+        // col 6 = Date e.g. "2026/06/14" or "2026-06-14" — match by year-mon
+        var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        rows = rows.filter(function(r) {
+          var d = String(r[6] || '');
+          // extract YYYY and MM from date string or Date object
+          var parts = d.match(/(\d{4})[\/-](\d{2})/);
+          if (!parts) {
+            if (r[6] instanceof Date) {
+              return r[6].getFullYear() + '-' + mn[r[6].getMonth()] === month;
+            }
+            return false;
+          }
+          return parts[1] + '-' + (mn[parseInt(parts[2])-1] || parts[2]) === month;
+        });
+      }
+      result = { ok: true, rows: rows };
 
     } else if (action === 'write_achievements') {
       var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
