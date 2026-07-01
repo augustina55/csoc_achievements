@@ -1285,28 +1285,57 @@ var GAS_URL = 'https://script.google.com/macros/s/AKfycbw7fkdq14gEeOyq25JcKNEWu2
 // ── Players loaded from Google Sheet (Players tab) ────────────────────────────
 // Columns: [Player Name, FIDE ID, Mobile, Sub Start, Sub End, Status, Updated At]
 var PLAYERS_DATA = [];
-(function loadPlayersFromGAS() {
-  if (!GAS_URL) return;
+var _playersLoading = false;
+var _playersReady = false;
+var _playersCallbacks = [];
+
+function _parsePlayerRows(rows) {
+  return rows.map(function(row) {
+    return {
+      player_name:             String(row[0] || ''),
+      fide_id:                 String(row[1] || '').trim(),
+      mobile_number:           row[2] || '',
+      subscription_start_date: row[3] ? String(row[3]).slice(0,10) : '',
+      subscription_end_date:   row[4] ? String(row[4]).slice(0,10) : '',
+      status:                  Number(row[5]) || 1
+    };
+  }).filter(function(p){ return p.fide_id; });
+}
+
+function loadPlayersFromGAS(callback) {
+  if (callback) _playersCallbacks.push(callback);
+  if (_playersLoading) return; // already in flight
+  if (_playersReady && !callback) return;
+  _playersLoading = true;
+  if (!GAS_URL) { _playersReady = true; _playersLoading = false; _flushPlayerCallbacks(); return; }
+  var statusEl = document.getElementById('stat-players');
+  if (statusEl) statusEl.textContent = '…';
   fetch(GAS_URL + '?action=read_players')
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (d.ok && d.rows && d.rows.length > 0) {
-        PLAYERS_DATA = d.rows.map(function(row) {
-          return {
-            player_name:             String(row[0] || ''),
-            fide_id:                 row[1] || '',
-            mobile_number:           row[2] || '',
-            subscription_start_date: row[3] ? String(row[3]).slice(0,10) : '',
-            subscription_end_date:   row[4] ? String(row[4]).slice(0,10) : '',
-            status:                  Number(row[5]) || 1
-          };
-        }).filter(function(p){ return p.fide_id; });
-        var el = document.getElementById('stat-players');
-        if (el) el.textContent = PLAYERS_DATA.length;
+        PLAYERS_DATA = _parsePlayerRows(d.rows);
+        if (statusEl) statusEl.textContent = PLAYERS_DATA.length;
+      } else {
+        console.warn('read_players:', d.error || 'no rows');
       }
+      _playersLoading = false; _playersReady = true;
+      _flushPlayerCallbacks();
     })
-    .catch(function(){});
-})();
+    .catch(function(e){
+      console.warn('loadPlayersFromGAS failed:', e);
+      _playersLoading = false; _playersReady = true;
+      _flushPlayerCallbacks();
+    });
+}
+
+function _flushPlayerCallbacks() {
+  var cbs = _playersCallbacks.splice(0);
+  cbs.forEach(function(fn){ fn(); });
+}
+
+// Start loading immediately on page load
+loadPlayersFromGAS();
 
 function statusChip(s) {
   var labels = {1:'Active',2:'Expired',3:'Upcoming',5:'Pause'};
@@ -1343,6 +1372,17 @@ function confirmFetchFromAPI() {
   var month = selectedMonth();
   if (!month) { setMsg('Please select a month first.', '#c0392b'); return; }
   if (!confirm('Fetch fresh FIDE rating data from API for ' + month + '?\n\nThis calls the FIDE API for ALL players and saves new results to the sheet.\nClick OK to proceed, Cancel to abort.')) return;
+  if (_playersLoading) {
+    setMsg('Loading player list from sheet… please wait.', '#888');
+    loadPlayersFromGAS(function(){ fetchGotRating(); });
+    return;
+  }
+  if (PLAYERS_DATA.length === 0) {
+    setMsg('Could not load players from sheet. Reloading…', '#f7a440');
+    _playersReady = false;
+    loadPlayersFromGAS(function(){ fetchGotRating(); });
+    return;
+  }
   fetchGotRating();
 }
 
@@ -1363,10 +1403,9 @@ function computePlayerStatus(player, month) {
 function fetchGotRating() {
   var month = selectedMonth();
   if (!month) return;
-  // Always use players from GAS Players sheet
   var srcPlayers = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
   if (srcPlayers.length === 0) {
-    setMsg('Players not loaded from sheet yet. Please wait a moment and try again.', '#c0392b');
+    setMsg('No players loaded from sheet. Check that the GAS web app is deployed with the latest sheet_api.gs and the Players sheet has data.', '#c0392b');
     return;
   }
   var total = srcPlayers.length, done = 0, results = [];
