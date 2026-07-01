@@ -188,7 +188,6 @@
       <div class="filter-row">
         <select id="ach-month-sel" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
         <button class="filter-btn active" onclick="confirmFetchAchievements()" id="ach-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
-        <button class="filter-btn" onclick="loadAchievementsFromSheet()" id="ach-sheet-btn" style="padding:5px 16px">📋 Load from Sheet</button>
         <button class="filter-btn active" id="fbtn-all"   onclick="setFilter('all')">All</button>
         <button class="filter-btn"        id="fbtn-rated" onclick="setFilter('rated')">FIDE / Rated</button>
       </div>
@@ -199,7 +198,7 @@
           <th>#</th><th>Player</th><th>Status</th><th>Tournament</th><th>Date</th>
           <th>Rank</th><th>Rating ±</th><th>Type</th><th></th>
         </tr></thead>
-        <tbody id="achievers-tbody"><tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">Select a month and click Load from Sheet.</td></tr></tbody>
+        <tbody id="achievers-tbody"><tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -213,7 +212,6 @@
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
         <select id="got-month-sel" onchange="loadGotRating()" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
         <button class="filter-btn active" onclick="confirmFetchFromAPI()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
-        <button class="filter-btn" onclick="loadGotFromSheet()" id="got-sheet-btn" style="padding:5px 16px">📋 Load from Sheet</button>
       </div>
     </div>
     <div id="got-rating-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Select a month and click Fetch.</div>
@@ -792,10 +790,13 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) {
+function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, stripLabel) {
   var base  = currentColor;
   var strip = darkenColor(base, 0.28);
   var bg    = lightenColor(base, 0.60);
+  // stripWords: two-element array for left strip, or null = single word CHAMP
+  var stripWords = stripLabel ? stripLabel.split(' ') : (ratingPoints !== null ? ['RATING','GAINED'] : null);
+  var twoCol = stripWords !== null;
 
   var css = ''
     +'@import url("https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap");'
@@ -823,7 +824,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'  background-size:24px 24px; font-family:Arial,Helvetica,sans-serif; }'
     +'.strip { position:absolute; left:50px; top:55px; width:185px; height:590px;'
     +'  background:'+strip+'; border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2; }'
-    +(ratingPoints!==null
+    +(twoCol
       ?'.champ-text{position:absolute;right:303px;top:55px;width:185px;height:590px;display:flex;flex-direction:row;align-items:flex-start;justify-content:center;padding-top:18px;gap:2px;z-index:5;}'
        +'.champ-text span{writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);font-size:80px;font-weight:900;font-family:"Archivo Black","Arial Black",Arial,sans-serif;color:transparent;-webkit-text-stroke:3px #ffffff;letter-spacing:2px;white-space:nowrap;}'
       :'.champ-text { position:absolute; right:303px; top:55px; writing-mode:vertical-rl;'
@@ -850,7 +851,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'  border-radius:50%; overflow:hidden; background:#ddd; border:4px solid '+strip+'; z-index:6; }'
     +'.profile img { width:100%; height:100%; object-fit:cover; display:block; }'
     +'.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }'
-    +'.caissa-box { position:absolute; top:'+(ratingPoints!==null?322:290)+'px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:1px; font-weight:700; color:#0a1825; z-index:3; }'
+    +'.caissa-box { position:absolute; top:'+(ratingPoints!==null?322:(twoCol?322:290))+'px; left:12px; right:12px; border:2px solid #2196F3; border-radius:10px; background:#fff; padding:7px 10px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:1px; font-weight:700; color:#0a1825; z-index:3; }'
     +'.caissa-logo { width:28px; height:26px; object-fit:contain; flex-shrink:0; }'
     +'.c-red { color:#b83030; }'
     +'.proud-thunder { font-family:"Thunder","Arial Black",Arial,sans-serif; font-size:15px; font-weight:700; color:#0a1825; text-align:center; line-height:1.15; letter-spacing:1px; }'
@@ -862,7 +863,8 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
 
   /* ── popup canvas script (all double-quoted JS, no single-quote conflicts) ── */
   var sc = [
-    'var BG="'+bg+'",ST="'+strip+'",RT='+(ratingPoints!==null?('"+'+(ratingPoints)+'"'):'null')+';',
+    'var BG="'+bg+'",ST="'+strip+'",RT='+(ratingPoints!==null?('"'+(ratingPoints)+'"'):'null')
+    +',SW='+JSON.stringify(stripWords)+';',
     'function wT(c,t,x,y,mw,lh){',
     '  var ws=t.split(" "),ln="";',
     '  for(var i=0;i<ws.length;i++){',
@@ -885,15 +887,18 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     '  ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);',
     '  ctx.closePath();ctx.fillStyle=ST;ctx.fill();',
     '  var cx2=sx+sw/2;',
-    '  if(RT){',
-    '    var rfz=75,col1=["G","N","I","T","A","R"],col2=["D","E","N","I","A","G"];',
-    '    var rtot=col1.length*rfz,rSY=sy+(sh-rtot)/2;',
+    '  if(SW){',
+    '    var sc1=SW[0].split("").reverse(),sc2=(SW[1]||"").split("").reverse();',
+    '    var maxL=Math.max(sc1.length,sc2.length);',
+    '    var rfz=Math.min(75,Math.floor(sh*0.88/maxL));',
+    '    var rtot=maxL*rfz,rSY=sy+(sh-rtot)/2;',
     '    var ccol1=sx+Math.round(sw/4),ccol2=sx+Math.round(3*sw/4);',
     '    ctx.font="900 "+rfz+"px Arial,sans-serif";ctx.strokeStyle="rgba(255,255,255,0.85)";ctx.lineWidth=3;',
     '    ctx.textAlign="center";ctx.textBaseline="middle";',
-    '    for(var ri=0;ri<col1.length;ri++){var rcy=rSY+rfz/2+ri*rfz;',
-    '      ctx.save();ctx.translate(ccol1,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(col1[ri],0,0);ctx.restore();',
-    '      ctx.save();ctx.translate(ccol2,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(col2[ri],0,0);ctx.restore();}',
+    '    for(var ri=0;ri<maxL;ri++){var rcy=rSY+rfz/2+ri*rfz;',
+    '      if(ri<sc1.length){ctx.save();ctx.translate(ccol1,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(sc1[ri],0,0);ctx.restore();}',
+    '      if(ri<sc2.length){ctx.save();ctx.translate(ccol2,rcy);ctx.rotate(-Math.PI/2);ctx.strokeText(sc2[ri],0,0);ctx.restore();}',
+    '    }',
     '  }else{',
     '    var chs=["P","M","A","H","C"];',
     '    ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";ctx.lineWidth=5;',
@@ -945,7 +950,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     '  }',
     '  ctx.fillStyle="#bbb";ctx.font="10px Arial,sans-serif";ctx.textAlign="right";',
     '  ctx.fillText("learn.circlechess.com",px+pw-10,635);',
-    '  var bx2=px+12,bT2=py+'+(ratingPoints!==null?322:290)+',bW2=pw-24,bH2=44,bR2=10;',
+    '  var bx2=px+12,bT2=py+'+(ratingPoints!==null?322:(twoCol?322:290))+',bW2=pw-24,bH2=44,bR2=10;',
     '  ctx.save();ctx.shadowColor="transparent";ctx.shadowBlur=0;',
     '  ctx.fillStyle="#fff";ctx.strokeStyle="#2196F3";ctx.lineWidth=2;',
     '  ctx.beginPath();ctx.moveTo(bx2+bR2,bT2);ctx.lineTo(bx2+bW2-bR2,bT2);',
@@ -985,28 +990,25 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'<body>'
     +'<div class="toolbar">'
     +'  <label>Name</label><input class="t-name" id="e-name" value="'+escHtml(name)+'" oninput="updName(this.value)">'
-    +(ratingPoints!==null
-      ?''
-      :'  <label>Result</label><input class="t-result" id="e-result" value="'+escHtml(posText)+'" oninput="updResult(this.value)">'
-    )
-    +'  <label>Tournament</label><input class="t-tourn" id="e-tourn" value="'+escHtml(tournamentName)+'" oninput="updTourn(this.value)">'
+    +'  <label>Result</label><input class="t-result" id="e-result" value="'+escHtml(posText)+'" oninput="updResult(this.value)">'
+    +(tournamentName!==''?'  <label>Tournament</label><input class="t-tourn" id="e-tourn" value="'+escHtml(tournamentName)+'" oninput="updTourn(this.value)">':'')
     +'  <button class="dl-btn" onclick="dlPNG()">&#11015; Download PNG</button>'
     +'</div>'
     +'<div class="poster-wrap">'
     +'<div id="poster-div" class="poster">'
     +'  <img class="medal" src="'+MEDAL_B64+'" alt="">'
     +'  <div class="strip"></div>'
-    +'  <div class="champ-text">'+(ratingPoints!==null?'<span>RATING</span><span>GAINED</span>':'CHAMP')+'</div>'
+    +'  <div class="champ-text">'+(twoCol?'<span>'+(stripWords[0]||'')+'</span><span>'+(stripWords[1]||'')+'</span>':'CHAMP')+'</div>'
     +'  <div class="grid-panel">'
     +'    <div class="logo-area"><img src="'+LOGO_B64+'" alt="CircleChess"></div>'
     +'    <div class="student-name">'+(name.indexOf(" ")>0?escHtml(name.slice(0,name.indexOf(" ")))+'<br>'+escHtml(name.slice(name.indexOf(" ")+1)):escHtml(name))+'</div>'
     +'    <div class="divider"></div>'
     +(ratingPoints!==null
-    ?'    <div class="rating-pill-wrap"><div class="rating-pill">+'+ratingPoints+'</div><div class="points-lbl">POINTS<br>GAINED</div></div>'
+    ?'    <div class="rating-pill-wrap"><div class="rating-pill">'+ratingPoints+'</div><div class="points-lbl">POINTS<br>GAINED</div></div>'
     +'    <div class="r-dot-div"></div>'
     +'    <div class="ach-tourn" style="top:275px">'+escHtml(tournamentName)+'</div>'
     :'    <div class="ach-pos">'+escHtml(posText)+'</div>'
-    +'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>'
+    +(tournamentName?'    <div class="ach-tourn">'+escHtml(tournamentName)+'</div>':'')
     )
     
     +'    <div class="caissa-box">'
@@ -1246,11 +1248,10 @@ function generatePoster() {
   var playerName     = (document.getElementById('modal-player').value     || '').trim() || currentRow.player_name;
   var tournamentName = (document.getElementById('modal-tournament').value || '').trim() || currentRow.tournament_name;
   var posterHtml;
+  var posText = (document.getElementById('modal-achievement').textContent || '').trim() || buildAchText(currentRow) || currentRow.pos_override || 'FIDE Rating';
   if (posterType === 'rating_achieved') {
-    var ratingInfo = (document.getElementById('modal-achievement').textContent || '').trim() || currentRow.pos_override || 'FIDE Rating';
-    posterHtml = buildRatingAchievedHtml(playerName, ratingInfo, '', photoDataUri); // no tournament name
+    posterHtml = buildPosterHtml(playerName, posText, '', photoDataUri, null, 'RATING ACHIEVED');
   } else {
-    var posText = buildAchText(currentRow);
     var ratingPoints = null;
     if (posterType === 'rating') {
       var rc = Number(currentRow.rating_change);
@@ -1653,7 +1654,7 @@ function cpUpdate() {
   var posterHtml;
   if (type === 'rating_achieved') {
     var ratingInfo = ratingType + ' Rating — ' + period;
-    posterHtml = buildRatingAchievedHtml(name, ratingInfo, period, cpPhotoUri);
+    posterHtml = buildPosterHtml(name, ratingInfo, '', cpPhotoUri, null, 'RATING ACHIEVED');
   } else {
     var posText;
     if (type === 'achiever') {
@@ -1698,7 +1699,7 @@ function downloadCpPoster() {
   var posterHtml;
   if (type === 'rating_achieved') {
     var ratingInfo = ratingType + ' Rating — ' + period;
-    posterHtml = buildRatingAchievedHtml(name, ratingInfo, period, cpPhotoUri);
+    posterHtml = buildPosterHtml(name, ratingInfo, '', cpPhotoUri, null, 'RATING ACHIEVED');
   } else {
     var posText;
     if (type === 'achiever') {
