@@ -425,6 +425,7 @@ function openGotRatingPoster(idx) {
   var primaryType  = r.gStd ? 'Classical' : (r.gRap ? 'Rapid' : 'Blitz');
   var achieveText  = 'Achieved International ' + primaryType + ' FIDE Rating in ' + fmtMonth(r.period);
   currentRow = { player_name: name, tournament_name: achieveText, pos_override: ratingStr };
+  posterType = 'rating_achieved';
   document.getElementById('modal-player').value            = name;
   document.getElementById('modal-achievement').textContent = ratingStr;
   document.getElementById('modal-tournament').value        = achieveText;
@@ -703,13 +704,205 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'</body></html>';
 }
 
+// ── Rating Achieved poster (Got Rating tab) ───────────────────────────────────
+function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
+  var displayName = name.toUpperCase();
+  var words = displayName.split(' ');
+  var mid = Math.ceil(words.length / 2);
+  var line1 = words.slice(0, mid).join(' ');
+  var line2 = words.slice(mid).join(' ');
+  var longestLine = Math.max(line1.length, (line2 || '').length);
+  var nameFontSize = longestLine <= 8 ? 52 : longestLine <= 11 ? 44 : longestLine <= 14 ? 36 : 30;
+
+  var css = ''
+    +'* { margin:0; padding:0; box-sizing:border-box; }'
+    +'body { background:#e8e8e8; }'
+    +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:9px 20px;'
+    +'  display:flex; align-items:center; justify-content:space-between; z-index:200;'
+    +'  box-shadow:0 2px 10px rgba(0,0,0,0.12); font-family:Arial,sans-serif; }'
+    +'.toolbar span { font-size:13px; color:#666; }'
+    +'.dl-btn { background:#c0392b; color:#fff; border:none; border-radius:6px;'
+    +'  padding:8px 20px; font-size:13px; font-weight:700; cursor:pointer; }'
+    +'.poster-wrap { padding-top:56px; display:flex; justify-content:center; min-height:100vh; padding-bottom:24px; }'
+    +'.poster { width:500px; height:700px; position:relative; background:#fce4e4;'
+    +'  overflow:hidden; font-family:"Arial Black",Arial,sans-serif;'
+    +'  box-shadow:0 6px 30px rgba(0,0,0,.22); flex-shrink:0; }'
+    +'.poster::before { content:""; position:absolute; inset:0;'
+    +'  background-image:radial-gradient(circle,#dfaaaa 1.5px,transparent 1.5px);'
+    +'  background-size:18px 18px; z-index:0; pointer-events:none; }'
+    +'.banner { position:absolute; left:0; top:0; width:93px; height:700px;'
+    +'  background:#e53935; z-index:2; display:flex; flex-direction:column;'
+    +'  align-items:center; justify-content:center; padding-top:108px; padding-bottom:145px; gap:12px; }'
+    +'.banner-word { color:#fff; font-size:72px; font-weight:900; font-style:italic;'
+    +'  writing-mode:vertical-rl; transform:rotate(180deg); letter-spacing:7px;'
+    +'  line-height:0.88; font-family:"Arial Black",Arial,sans-serif;'
+    +'  text-shadow:2px 2px 5px rgba(0,0,0,.25); }'
+    +'.medal-img { position:absolute; top:4px; left:4px; width:100px; height:auto;'
+    +'  z-index:5; filter:drop-shadow(2px 3px 5px rgba(0,0,0,.3)); }'
+    +'.main { position:absolute; left:100px; top:0; right:0; bottom:0;'
+    +'  padding:16px 18px 0 12px; z-index:2; display:flex; flex-direction:column; }'
+    +'.logo-row { display:flex; align-items:center; margin-bottom:14px; margin-top:6px; }'
+    +'.cc-logo { height:38px; width:auto; }'
+    +'.player-name { font-size:'+nameFontSize+'px; font-weight:900; color:#1a1a1a;'
+    +'  line-height:1.05; margin-bottom:14px; font-family:"Arial Black",Arial,sans-serif;'
+    +'  word-break:break-word; }'
+    +'.divider-line { border:none; border-top:2.5px solid #1a1a1a; margin-bottom:14px; }'
+    +'.achieved-row { display:flex; align-items:center; gap:12px; }'
+    +'.badge-circle { width:46px; height:46px; border-radius:50%; background:#fff;'
+    +'  border:2.5px solid #1a1a1a; display:flex; align-items:center; justify-content:center;'
+    +'  font-size:22px; flex-shrink:0; }'
+    +'.achieved-label { font-size:26px; font-weight:900; color:#1a1a1a; letter-spacing:2px;'
+    +'  font-family:"Arial Black",Arial,sans-serif; }'
+    +'.fide-pill { display:inline-block; background:#1a5fb4; color:#fff; padding:5px 18px;'
+    +'  border-radius:20px; font-size:11px; font-weight:700; letter-spacing:1px;'
+    +'  text-transform:uppercase; margin-top:8px; margin-left:58px; font-family:Arial,sans-serif;'
+    +'  align-self:flex-start; }'
+    +'.rating-info { font-size:12px; font-weight:700; color:#2c3e50; margin-top:5px;'
+    +'  margin-left:58px; font-family:Arial,sans-serif; align-self:flex-start; }'
+    +'.sep { border:none; border-top:1.5px dashed #c0a0a0; margin:14px 0 10px; }'
+    +'.proud-bar { display:flex; align-items:center; gap:9px; background:#fff;'
+    +'  border:1.5px solid #d4af37; border-radius:6px; padding:9px 13px; }'
+    +'.cc-logo-sm { height:22px; width:auto; flex-shrink:0; }'
+    +'.proud-text { font-size:11px; color:#333; font-family:Arial,sans-serif; font-weight:600; }'
+    +'.proud-brand { color:#e53935; font-weight:800; }'
+    +'.bottom-area { margin-top:auto; position:relative; height:158px; flex-shrink:0; }'
+    +'.photo-circle { position:absolute; bottom:14px; left:-14px; width:130px; height:130px;'
+    +'  border-radius:50%; border:4px solid #fff; box-shadow:0 2px 12px rgba(0,0,0,.18);'
+    +'  background:#bbb; display:flex; align-items:center; justify-content:center;'
+    +'  overflow:hidden; color:#777; font-size:10px; font-weight:600;'
+    +'  font-family:Arial,sans-serif; text-align:center; }'
+    +'.chess-img { position:absolute; bottom:0; right:-8px; height:155px; width:auto; }';
+
+  var sc = [
+    'function dlPNG(){',
+    '  var W=500,H=700;',
+    '  var cv=document.createElement("canvas");cv.width=W;cv.height=H;',
+    '  var ctx=cv.getContext("2d");',
+    '  ctx.fillStyle="#fce4e4";ctx.fillRect(0,0,W,H);',
+    '  ctx.fillStyle="#dfaaaa";',
+    '  for(var dy=9;dy<H;dy+=18)for(var dx=9;dx<W;dx+=18){ctx.beginPath();ctx.arc(dx,dy,1.5,0,Math.PI*2);ctx.fill();}',
+    '  ctx.fillStyle="#e53935";ctx.fillRect(0,0,93,H);',
+    '  ctx.font="900 italic 72px Arial,sans-serif";ctx.fillStyle="#fff";',
+    '  ctx.textAlign="center";ctx.textBaseline="middle";',
+    '  var words2=["RATING","ACHIEVED"];',
+    '  var startY=H/2-72/2-72/2-6;',
+    '  for(var wi=0;wi<words2.length;wi++){',
+    '    ctx.save();ctx.translate(46,startY+wi*(72+12));ctx.rotate(-Math.PI/2);',
+    '    ctx.fillText(words2[wi],0,0);ctx.restore();',
+    '  }',
+    '  var nm=document.querySelector(".player-name").innerText.trim();',
+    '  var px2=100,py2=0,pw2=400,ph2=700;',
+    '  ctx.font="900 '+nameFontSize+'px Arial,sans-serif";ctx.fillStyle="#1a1a1a";',
+    '  ctx.textAlign="left";ctx.textBaseline="top";',
+    '  var lineH='+nameFontSize+'*1.05;',
+    '  var nLines=nm.split("\\n");',
+    '  ctx.fillText(nLines[0]||nm,px2+12,120);',
+    '  if(nLines[1])ctx.fillText(nLines[1],px2+12,120+lineH);',
+    '  ctx.fillStyle="#1a1a1a";ctx.fillRect(px2+12,200,pw2-30,2.5);',
+    '  ctx.font="900 22px Arial,sans-serif";ctx.fillStyle="#1a1a1a";',
+    '  ctx.textAlign="left";ctx.textBaseline="middle";',
+    '  ctx.fillText("ACHIEVED",px2+74,228);',
+    '  ctx.beginPath();ctx.arc(px2+35,228,22,0,Math.PI*2);',
+    '  ctx.fillStyle="#fff";ctx.fill();',
+    '  ctx.strokeStyle="#1a1a1a";ctx.lineWidth=2.5;ctx.stroke();',
+    '  ctx.font="22px serif";ctx.fillStyle="#1a1a1a";ctx.textAlign="center";ctx.textBaseline="middle";',
+    '  ctx.fillText("⭐",px2+35,228);',
+    '  ctx.fillStyle="#1a5fb4";',
+    '  ctx.beginPath();ctx.roundRect(px2+70,248,120,24,12);ctx.fill();',
+    '  ctx.fillStyle="#fff";ctx.font="bold 11px Arial,sans-serif";',
+    '  ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("FIDE RATING",px2+130,260);',
+    '  var ri=document.querySelector(".rating-info");',
+    '  if(ri&&ri.textContent.trim()){',
+    '    ctx.fillStyle="#2c3e50";ctx.font="bold 12px Arial,sans-serif";ctx.textAlign="left";',
+    '    ctx.textBaseline="top";ctx.fillText(ri.textContent.trim(),px2+70,278);',
+    '  }',
+    '  ctx.save();ctx.setLineDash([6,4]);ctx.strokeStyle="#c0a0a0";ctx.lineWidth=1.5;',
+    '  ctx.beginPath();ctx.moveTo(px2+12,308);ctx.lineTo(W-12,308);ctx.stroke();ctx.restore();',
+    '  ctx.fillStyle="#fff";ctx.strokeStyle="#d4af37";ctx.lineWidth=1.5;',
+    '  ctx.beginPath();ctx.roundRect(px2+12,322,pw2-24,40,6);ctx.fill();ctx.stroke();',
+    '  ctx.fillStyle="#333";ctx.font="600 11px Arial,sans-serif";ctx.textAlign="left";ctx.textBaseline="middle";',
+    '  ctx.fillText("Proud ",px2+44,342);',
+    '  ctx.fillStyle="#e53935";ctx.font="800 11px Arial,sans-serif";',
+    '  var s2w=ctx.measureText("Proud ").width;',
+    '  ctx.fillText("Caissa School Of Chess",px2+44+s2w,342);',
+    '  ctx.fillStyle="#333";ctx.font="600 11px Arial,sans-serif";',
+    '  var s3w=ctx.measureText("Caissa School Of Chess").width;',
+    '  ctx.fillText(" Student",px2+44+s2w+s3w,342);',
+    '  var tot=3+(typeof photoUri!=="undefined"&&photoUri?1:0),dn=0;',
+    '  var fname=nm.replace(/[^a-zA-Z0-9]/g,"_")+"_rating_achieved.png";',
+    '  function fin(){var a=document.createElement("a");a.download=fname;a.href=cv.toDataURL("image/png");document.body.appendChild(a);a.click();document.body.removeChild(a);}',
+    '  function od(){if(++dn>=tot)fin();}',
+    '  function di(img,dx,dy,dw,dh){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.drawImage(i2,dx,dy,dw,dh);od();};i2.onerror=od;i2.src=img.src;}',
+    '  function dc(img,cx2,cy2,cr){if(!img){od();return;}var i2=new Image();i2.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i2,cx2-cr,cy2-cr,cr*2,cr*2);ctx.restore();ctx.beginPath();ctx.arc(cx2,cy2,cr,0,Math.PI*2);ctx.strokeStyle="#fff";ctx.lineWidth=4;ctx.stroke();od();};i2.onerror=od;i2.src=img.src;}',
+    '  var medEl=document.querySelector(".medal-img");',
+    '  var chEl=document.querySelector(".chess-img");',
+    '  var lgEl=document.querySelector(".cc-logo");',
+    '  di(medEl,4,4,100,100);',
+    '  di(chEl,W-163,H-155,163,155);',
+    '  di(lgEl,106,16,100,38);',
+    '  var phEl=document.querySelector(".photo-circle img");',
+    '  if(phEl){dc(phEl,51,H-79,65);}else{od();}',
+    '}'
+  ].join('\n');
+
+  var logoTag   = '<img class="cc-logo" src="' + LOGO_B64 + '" alt="Caissa School of Chess">';
+  var logoSmall = '<img class="cc-logo-sm" src="' + LOGO_B64 + '" alt="">';
+  var medalTag  = '<img class="medal-img" src="' + MEDAL_B64 + '" alt="Medal">';
+  var chessTag  = '<img class="chess-img" src="' + CHESS_B64 + '" alt="Chess Pieces">';
+  var photoHtml = photoUri
+    ? '<div class="photo-circle"><img src="' + photoUri + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" alt=""></div>'
+    : '<div class="photo-circle">Photo</div>';
+
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>'
+    + escHtml(name) + ' – Rating Achieved</title>'
+    + '<style>' + css + '</style></head><body>'
+    + '<div class="toolbar">'
+    + '  <span>Rating Achieved Poster — ' + escHtml(name) + '</span>'
+    + '  <button class="dl-btn" onclick="dlPNG()">&#11015; Download PNG</button>'
+    + '</div>'
+    + '<div class="poster-wrap"><div class="poster">'
+    + '  <div class="banner">'
+    + '    <div class="banner-word">RATING</div>'
+    + '    <div class="banner-word">ACHIEVED</div>'
+    + '  </div>'
+    + '  ' + medalTag
+    + '  <div class="main">'
+    + '    <div class="logo-row">' + logoTag + '</div>'
+    + '    <div class="player-name">' + escHtml(line1) + (line2 ? '<br>' + escHtml(line2) : '') + '</div>'
+    + '    <hr class="divider-line">'
+    + '    <div class="achieved-row">'
+    + '      <div class="badge-circle">⭐</div>'
+    + '      <div class="achieved-label">ACHIEVED</div>'
+    + '    </div>'
+    + '    <div class="fide-pill">FIDE RATING</div>'
+    + (ratingInfo ? '    <div class="rating-info">' + escHtml(ratingInfo) + '</div>' : '')
+    + '    <hr class="sep">'
+    + '    <div class="proud-bar">' + logoSmall
+    + '      <div class="proud-text">Proud <span class="proud-brand">Caissa School Of Chess</span> Student</div>'
+    + '    </div>'
+    + '    <div class="bottom-area">'
+    + '      ' + photoHtml
+    + '      ' + chessTag
+    + '    </div>'
+    + '  </div>'
+    + '</div></div>'
+    + '<' + 'script>' + sc + '<' + '/scri' + 'pt>'
+    + '</body></html>';
+}
+
 function generatePoster() {
   if (!currentRow) return;
   var playerName     = (document.getElementById('modal-player').value     || '').trim() || currentRow.player_name;
   var tournamentName = (document.getElementById('modal-tournament').value || '').trim() || currentRow.tournament_name;
-  var posText        = buildAchText(currentRow);
-  var ratingPoints   = (posterType === 'rating' && currentRow.is_rated) ? (currentRow.rating_change || 0) : null;
-  var posterHtml     = buildPosterHtml(playerName, posText, tournamentName, photoDataUri, ratingPoints);
+  var posterHtml;
+  if (posterType === 'rating_achieved') {
+    var ratingInfo = (document.getElementById('modal-achievement').textContent || '').trim() || currentRow.pos_override || 'FIDE Rating';
+    posterHtml = buildRatingAchievedHtml(playerName, ratingInfo, tournamentName, photoDataUri);
+  } else {
+    var posText      = buildAchText(currentRow);
+    var ratingPoints = (posterType === 'rating' && currentRow.is_rated) ? (currentRow.rating_change || 0) : null;
+    posterHtml = buildPosterHtml(playerName, posText, tournamentName, photoDataUri, ratingPoints);
+  }
   var win = window.open('', '_blank', 'width=600,height=800,toolbar=no,menubar=no,scrollbars=yes,location=no');
   if (!win) { alert('Please allow pop-ups for this page to preview the poster.'); return; }
   win.document.open();
