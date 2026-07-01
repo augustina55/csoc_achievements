@@ -84,13 +84,16 @@ function _handle(p) {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
       var month = p.month || '';
-      var rows = all.slice(1).filter(function(r){ return !month || String(r[4]) === month; });
+      var rows = all.slice(1).filter(function(r){ return !month || normalizePeriod(r[4]) === month; });
+      // Normalize period col in each row before returning
+      rows = rows.map(function(r){ var nr = r.slice(); nr[4] = normalizePeriod(r[4]); return nr; });
       result = { ok: true, rows: rows };
 
     } else if (action === 'read_all_got_rating') {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
-      result = { ok: true, rows: all.slice(1) };
+      var rows = all.slice(1).map(function(r){ var nr = r.slice(); nr[4] = normalizePeriod(r[4]); return nr; });
+      result = { ok: true, rows: rows };
 
     } else if (action === 'write_got_rating') {
       var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
@@ -284,6 +287,21 @@ function appendDedup(sh, newRows, keyColIndices) {
     }
   });
   return added;
+}
+
+function normalizePeriod(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return val.getFullYear() + '-' + mn[val.getMonth()];
+  }
+  var s = String(val);
+  var iso = s.match(/^(\d{4})-(\d{2})/);
+  if (iso) {
+    var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return iso[1] + '-' + (mn[parseInt(iso[2])-1] || iso[2]);
+  }
+  return s;
 }
 
 function makeKey(row, colIndices) {
