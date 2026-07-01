@@ -1410,12 +1410,8 @@ function fetchGotRating() {
 
   var srcPlayers = PLAYERS_DATA.filter(function(p) {
     if (!p.fide_id) return false;
-    if (Number(p.status) !== 2) return true; // Active / other statuses: always include
-    // Status 2 (Expired): only fetch if subscription covers the selected month
-    if (!_firstOfMonth || !p.subscription_end_date || !p.subscription_start_date) return false;
-    var start = new Date(p.subscription_start_date);
-    var end   = new Date(p.subscription_end_date);
-    return start <= _firstOfMonth && end >= _firstOfMonth;
+    if (!p.subscription_end_date || !_firstOfMonth) return true; // no date info: include
+    return new Date(p.subscription_end_date) >= _firstOfMonth;
   });
   if (srcPlayers.length === 0) {
     setMsg('No players loaded from sheet. Check that the GAS web app is deployed with the latest sheet_api.gs and the Players sheet has data.', '#c0392b');
