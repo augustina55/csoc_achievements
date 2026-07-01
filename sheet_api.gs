@@ -33,7 +33,30 @@ function doGet(e) {
     if (action === 'read_players') {
       var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
       var all = sh.getDataRange().getValues();
-      result = { ok: true, rows: all.slice(1), count: all.length - 1 };
+      if (all.length < 2) { result = { ok: true, rows: [], count: 0 }; }
+      else {
+        // Detect columns by header name (case-insensitive) so sheet column order doesn't matter
+        var hdrs = all[0].map(function(h){ return String(h).toLowerCase().trim(); });
+        var ci = {
+          name:  colIdx(hdrs, ['player name','name','player']),
+          fide:  colIdx(hdrs, ['fide id','fide_id','fideid','fide']),
+          mob:   colIdx(hdrs, ['mobile','mobile number','mobile_number','phone']),
+          start: colIdx(hdrs, ['subscription start','subscription_start_date','start date','sub start','start']),
+          end:   colIdx(hdrs, ['subscription end','subscription_end_date','end date','sub end','end']),
+          stat:  colIdx(hdrs, ['status'])
+        };
+        var rows = all.slice(1).map(function(r) {
+          return [
+            ci.name  >= 0 ? r[ci.name]  : '',
+            ci.fide  >= 0 ? r[ci.fide]  : '',
+            ci.mob   >= 0 ? r[ci.mob]   : '',
+            ci.start >= 0 ? r[ci.start] : '',
+            ci.end   >= 0 ? r[ci.end]   : '',
+            ci.stat  >= 0 ? r[ci.stat]  : 1
+          ];
+        }).filter(function(r){ return r[1]; }); // must have fide_id
+        result = { ok: true, rows: rows, count: rows.length, headers: all[0] };
+      }
 
     } else if (action === 'write_players') {
       var rows = JSON.parse(p.rows || '[]');
@@ -69,6 +92,21 @@ function doGet(e) {
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id + tournament
       result = { ok: true, added: added, skipped: rows.length - added };
+
+    } else if (action === 'fide_history') {
+      // CORS proxy: fetch FIDE rating history server-side and return to browser
+      var fideId = String(p.fide_id || '').trim();
+      if (!fideId) {
+        result = { ok: false, error: 'Missing fide_id' };
+      } else {
+        var apiUrl = 'https://api.chesstools.org/fide/player_history/?fide_id=' + encodeURIComponent(fideId);
+        var apiResp = UrlFetchApp.fetch(apiUrl, { muteHttpExceptions: true });
+        if (apiResp.getResponseCode() === 200) {
+          result = { ok: true, data: JSON.parse(apiResp.getContentText()) };
+        } else {
+          result = { ok: false, error: 'chesstools API ' + apiResp.getResponseCode() };
+        }
+      }
 
     } else {
       result = { ok: false, error: 'Unknown action: ' + action };
@@ -234,4 +272,14 @@ function appendDedup(sh, newRows, keyColIndices) {
 
 function makeKey(row, colIndices) {
   return colIndices.map(function(i){ return String(row[i]||'').trim().toLowerCase(); }).join('|');
+}
+
+// Find first header index matching any of the candidate names
+function colIdx(hdrs, candidates) {
+  for (var i = 0; i < hdrs.length; i++) {
+    for (var j = 0; j < candidates.length; j++) {
+      if (hdrs[i] === candidates[j]) return i;
+    }
+  }
+  return -1;
 }

@@ -1431,9 +1431,11 @@ function fetchGotRating() {
     while (running < LIMIT && queue.length > 0) {
       var p = queue.shift(); running++;
       (function(player) {
-        fetch('https://api.chesstools.org/fide/player_history/?fide_id=' + player.fide_id)
+        // Route through GAS to avoid CORS restriction on api.chesstools.org
+        fetch(GAS_URL + '?action=fide_history&fide_id=' + encodeURIComponent(player.fide_id))
           .then(function(r){ return r.ok ? r.json() : null; })
-          .then(function(hist) {
+          .then(function(resp) {
+            var hist = (resp && resp.ok) ? resp.data : null;
             done++; running--;
             if (hist && hist.length > 0) {
               var sorted = hist.slice().sort(function(a,b){
