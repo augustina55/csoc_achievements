@@ -1553,7 +1553,7 @@ function loadGotFromSheet() {
         var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1],
           status:row[2], subscription_end_date:row[3] };
         return { player: Object.assign({}, p, { status:row[2], subscription_end_date:row[3] }),
-          period:row[4], std:Number(row[5])||0, rap:Number(row[6])||0, bli:Number(row[7])||0,
+          period:normalizePeriod(row[4]), std:Number(row[5])||0, rap:Number(row[6])||0, bli:Number(row[7])||0,
           gStd:!!(Number(row[5])>0), gRap:!!(Number(row[6])>0), gBli:!!(Number(row[7])>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
@@ -1738,6 +1738,16 @@ function loadRatingStats() {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
+function normalizePeriod(val) {
+  if (!val) return '';
+  var s = String(val);
+  var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // ISO date: "2026-06-01T..." or "2026-06-01"
+  var iso = s.match(/^(\d{4})-(\d{2})/);
+  if (iso) return iso[1] + '-' + (mn[parseInt(iso[2])-1] || iso[2]);
+  return s; // already "2026-Jun" or similar
+}
+
 function renderGotRating(results, tbody) {
   if (!tbody) return;
   gotRatingResults = results;
@@ -1754,7 +1764,7 @@ function renderGotRating(results, tbody) {
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
       '<td style="font-weight:600">'+(p.cr_name||p.player_name)+'</td>' +
-      '<td>'+statusChip(p.status)+'</td>' +
+      '<td>'+statusLabel(p.status)+'</td>' +
       '<td style="color:var(--text2)">'+(p.fide_id||'—')+'</td>' +
       '<td>'+cell(r.std,r.gStd)+'</td>' +
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
