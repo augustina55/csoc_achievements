@@ -1408,18 +1408,10 @@ function fetchGotRating() {
   var _mi = _monNames.indexOf(_mparts[1]);
   var _firstOfMonth = _mi >= 0 ? new Date(parseInt(_mparts[0]), _mi, 1) : null;
 
-  var allWithFide = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
-  var srcPlayers = allWithFide.filter(function(p) {
-    if (!p.subscription_end_date || !_firstOfMonth) return true;
-    return new Date(p.subscription_end_date) >= _firstOfMonth;
-  });
+  var srcPlayers = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
 
-  if (allWithFide.length === 0) {
-    setMsg('No players loaded from sheet yet. Wait a moment and try again, or check GAS deployment.', '#c0392b');
-    return;
-  }
   if (srcPlayers.length === 0) {
-    setMsg('0 players have subscription_end_date >= ' + month + '. Check subscription dates in the Players sheet.', '#c0392b');
+    setMsg('No players loaded from sheet yet. Wait a moment and try again, or check GAS deployment.', '#c0392b');
     return;
   }
 
