@@ -337,6 +337,23 @@ function ratingChange(rc) {
 function fmtDate(d) { return d ? d.replace(/\//g, '-') : '—'; }
 
 // ── Achievers table ───────────────────────────────────────────────────────────
+var STATUS_LABELS = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
+
+function statusLabel(s) {
+  var n = Number(s);
+  return STATUS_LABELS[n] || (s ? String(s) : '—');
+}
+
+function statusChip(s) {
+  var cls = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
+  var n = Number(s);
+  if (isNaN(n)) {
+    var rev = {'Active':1,'Expired':2,'Upcoming':3,'Pause':5};
+    n = rev[s] || 0;
+  }
+  return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(STATUS_LABELS[n]||s||'—')+'</span>';
+}
+
 var currentFilter = 'all';
 
 function setFilter(f) {
@@ -1336,24 +1353,6 @@ function _flushPlayerCallbacks() {
 
 // Start loading immediately on page load
 loadPlayersFromGAS();
-
-var STATUS_LABELS = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
-
-function statusLabel(s) {
-  var n = Number(s);
-  return STATUS_LABELS[n] || (s ? String(s) : '—');
-}
-
-function statusChip(s) {
-  var cls = {1:'status-active',2:'status-expired',3:'status-upcoming',5:'status-pause'};
-  var n = Number(s);
-  // also accept string labels
-  if (isNaN(n)) {
-    var rev = {'Active':1,'Expired':2,'Upcoming':3,'Pause':5};
-    n = rev[s] || 0;
-  }
-  return '<span class="status-chip '+(cls[n]||'status-expired')+'">'+(STATUS_LABELS[n]||s||'—')+'</span>';
-}
 
 // Build month options: Jan 2026 → current month, newest first
 (function buildMonthSel() {
