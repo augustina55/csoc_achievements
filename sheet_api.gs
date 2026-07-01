@@ -54,7 +54,7 @@ function _handle(p) {
         // Detect columns by header name (case-insensitive) so sheet column order doesn't matter
         var hdrs = all[0].map(function(h){ return String(h).toLowerCase().trim(); });
         var ci = {
-          name:  colIdx(hdrs, ['player name','name','player']),
+          name:  colIdx(hdrs, ['player name','player_name','name','player']),
           fide:  colIdx(hdrs, ['fide id','fide_id','fideid','fide']),
           mob:   colIdx(hdrs, ['mobile','mobile number','mobile_number','phone']),
           start: colIdx(hdrs, ['subscription start','subscription_start_date','start date','sub start','start']),
