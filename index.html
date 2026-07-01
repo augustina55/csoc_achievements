@@ -1354,17 +1354,21 @@ function computePlayerStatus(player, month) {
   var parts = String(month).split('-'); // ['2026','Jun']
   var mi = monNames.indexOf(parts[1]);
   if (mi === -1) return player.status;
-  var firstOfMonth = new Date(parseInt(parts[0]), mi, 1);
+  var lastOfMonth = new Date(parseInt(parts[0]), mi + 1, 0); // last day of selected month
   var endDate = new Date(end);
-  return endDate >= firstOfMonth ? 1 : 2; // 1=Active, 2=Non-Active/Expired
+  return endDate > lastOfMonth ? 1 : 2; // Active only if end date is strictly after the selected month
 }
 
 // ── Fetch from FIDE API for the selected month ────────────────────────────────
 function fetchGotRating() {
   var month = selectedMonth();
   if (!month) return;
-  // Use players from GAS Players sheet if loaded, else fall back to embedded DATA
-  var srcPlayers = (PLAYERS_DATA.length > 0 ? PLAYERS_DATA : DATA).filter(function(p){ return p.fide_id; });
+  // Always use players from GAS Players sheet
+  var srcPlayers = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
+  if (srcPlayers.length === 0) {
+    setMsg('Players not loaded from sheet yet. Please wait a moment and try again.', '#c0392b');
+    return;
+  }
   var total = srcPlayers.length, done = 0, results = [];
   var LIMIT = 10, running = 0, queue = srcPlayers.slice();
   var tbody = document.getElementById('got-rating-tbody');
@@ -1436,7 +1440,6 @@ function loadGotFromSheet() {
         return;
       }
       var playerMap = {};
-      DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
       PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
       var results = rows.map(function(row) {
         var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1], status:row[2],
