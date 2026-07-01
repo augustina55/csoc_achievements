@@ -176,6 +176,7 @@
   <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
   <div class="tab" onclick="switchTab('got')">🎖 Got Rating <span class="tab-badge" id="badge-got">—</span></div>
   <div class="tab" onclick="switchTab('stats')">📊 Rating Stats</div>
+  <div class="tab" onclick="switchTab('custom')">🎨 Custom Poster</div>
 </div>
 
 <!-- Achievers -->
@@ -239,6 +240,87 @@
     </div>
     <div id="stats-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Loading…</div>
     <div id="stats-table-wrap" style="overflow-x:auto;margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- Custom Poster -->
+<div class="panel" id="panel-custom">
+  <div style="display:flex;gap:0;height:calc(100vh - 120px);overflow:hidden">
+
+    <!-- Left: inputs -->
+    <div style="width:300px;flex-shrink:0;padding:16px 20px;overflow-y:auto;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:700;font-size:1rem;color:var(--text)">🎨 Custom Poster</div>
+
+      <div>
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Poster Type</label>
+        <select id="cp-type" onchange="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+          <option value="achiever">🏆 Achievement (CHAMP)</option>
+          <option value="rating">📈 Rating Gained</option>
+          <option value="rating_achieved">⭐ Rating Achieved</option>
+        </select>
+      </div>
+
+      <div>
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Student Name</label>
+        <input id="cp-name" type="text" placeholder="e.g. Magnus Carlsen" oninput="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+      </div>
+
+      <div id="cp-rank-row">
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Rank / Position</label>
+        <input id="cp-rank" type="number" min="1" placeholder="e.g. 1" oninput="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+      </div>
+
+      <div id="cp-tourn-row">
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Tournament Name</label>
+        <input id="cp-tourn" type="text" placeholder="e.g. State Championship 2026" oninput="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+      </div>
+
+      <div id="cp-points-row" style="display:none">
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Points Gained</label>
+        <input id="cp-points" type="number" placeholder="e.g. 111" oninput="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+      </div>
+
+      <div id="cp-achieved-rows" style="display:none">
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Rating Type</label>
+        <select id="cp-rating-type" onchange="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+          <option value="Classical">Classical</option>
+          <option value="Rapid">Rapid</option>
+          <option value="Blitz">Blitz</option>
+        </select>
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px;margin-top:10px">Period</label>
+        <input id="cp-period" type="text" value="July 2026" oninput="cpUpdate()" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.85rem">
+      </div>
+
+      <div>
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Color Theme</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="cp-color" type="color" value="#1565C0" oninput="cpUpdate()" style="width:40px;height:32px;border:none;border-radius:6px;cursor:pointer;padding:2px">
+          <span id="cp-color-presets" style="display:flex;gap:6px">
+            <button onclick="setCpColor('#1565C0')" style="width:22px;height:22px;border-radius:50%;background:#1565C0;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px #1565C0"></button>
+            <button onclick="setCpColor('#c0392b')" style="width:22px;height:22px;border-radius:50%;background:#c0392b;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px #c0392b"></button>
+            <button onclick="setCpColor('#1e7a3e')" style="width:22px;height:22px;border-radius:50%;background:#1e7a3e;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px #1e7a3e"></button>
+            <button onclick="setCpColor('#d4a832')" style="width:22px;height:22px;border-radius:50%;background:#d4a832;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px #d4a832"></button>
+            <button onclick="setCpColor('#6b21a8')" style="width:22px;height:22px;border-radius:50%;background:#6b21a8;border:2px solid #fff;cursor:pointer;box-shadow:0 0 0 1px #6b21a8"></button>
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <label style="font-size:0.78rem;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Player Photo</label>
+        <input type="file" accept="image/*" onchange="handleCpPhoto(this)" style="font-size:0.8rem;width:100%">
+        <div id="cp-photo-hint" style="font-size:0.75rem;color:#aaa;margin-top:3px">Optional — shown in circle</div>
+      </div>
+
+      <button onclick="downloadCpPoster()" style="margin-top:8px;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:0.9rem;cursor:pointer;width:100%">⬇ Download Poster</button>
+    </div>
+
+    <!-- Right: live preview -->
+    <div style="flex:1;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto;background:var(--bg)">
+      <div style="transform-origin:top center" id="cp-scale-wrap">
+        <iframe id="cp-preview" scrolling="no" style="width:540px;height:700px;border:none;display:block;box-shadow:0 6px 30px rgba(0,0,0,.2)"></iframe>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -720,12 +802,17 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'@import url("https://api.fontshare.com/v2/css?f[]=thunder@700&display=swap");'
     +'* { margin:0; padding:0; box-sizing:border-box; }'
     +'body { background:#d8cfc3; }'
-    +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:9px 20px;'
-    +'  display:flex; align-items:center; justify-content:space-between; z-index:200;'
+    +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:8px 16px;'
+    +'  display:flex; align-items:center; gap:10px; z-index:200; flex-wrap:wrap;'
     +'  box-shadow:0 2px 10px rgba(0,0,0,0.12); font-family:Arial,sans-serif; }'
-    +'.toolbar span { font-size:13px; color:#666; }'
-    +'.dl-btn { background:#9a7810; color:#fff; border:none; border-radius:6px;'
-    +'  padding:8px 20px; font-size:13px; font-weight:700; cursor:pointer; }'
+    +'.toolbar label { font-size:11px; color:#888; font-weight:600; margin-right:2px; }'
+    +'.toolbar input { border:1px solid #ddd; border-radius:5px; padding:5px 8px; font-size:12px; color:#222; outline:none; }'
+    +'.toolbar input:focus { border-color:#2196F3; }'
+    +'.t-name { width:160px; }'
+    +'.t-tourn { width:190px; }'
+    +'.t-result { width:110px; }'
+    +'.dl-btn { background:#9a7810; color:#fff; border:none; border-radius:6px; margin-left:auto;'
+    +'  padding:7px 18px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }'
     +'.poster-wrap { padding-top:56px; display:flex; justify-content:center; min-height:100vh; padding-bottom:24px; }'
     +'.poster-type-row { display:flex; gap:8px; margin-top:4px; }'
     +'.ptype-btn { flex:1; padding:8px 4px; border-radius:7px; border:2px solid #e2e8f0; background:#f8fafc; font-size:13px; font-weight:700; cursor:pointer; color:#64748b; transition:all .15s; }'
@@ -897,7 +984,12 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'<title>Poster Preview</title><style>'+css+'</style></head>'
     +'<body>'
     +'<div class="toolbar">'
-    +'  <span>Achievement Poster — Preview</span>'
+    +'  <label>Name</label><input class="t-name" id="e-name" value="'+escHtml(name)+'" oninput="updName(this.value)">'
+    +(ratingPoints!==null
+      ?''
+      :'  <label>Result</label><input class="t-result" id="e-result" value="'+escHtml(posText)+'" oninput="updResult(this.value)">'
+    )
+    +'  <label>Tournament</label><input class="t-tourn" id="e-tourn" value="'+escHtml(tournamentName)+'" oninput="updTourn(this.value)">'
     +'  <button class="dl-btn" onclick="dlPNG()">&#11015; Download PNG</button>'
     +'</div>'
     +'<div class="poster-wrap">'
@@ -926,7 +1018,22 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints) 
     +'  <div class="footer-url">learn.circlechess.com</div>'
     +'</div>'
     +'</div>'
-    +'<'+'script>'+sc+'<'+'/scri'+'pt>'
+    +'<'+'script>'+sc
+    +'function updName(v){'
+    +'  var el=document.querySelector(".student-name");'
+    +'  if(!el)return;'
+    +'  var up=v.toUpperCase();var sp=up.indexOf(" ");'
+    +'  el.innerHTML=sp>0?up.slice(0,sp)+"<br>"+up.slice(sp+1):up;'
+    +'}'
+    +'function updResult(v){'
+    +'  var el=document.querySelector(".ach-pos");'
+    +'  if(el)el.textContent=v;'
+    +'}'
+    +'function updTourn(v){'
+    +'  var el=document.querySelector(".ach-tourn");'
+    +'  if(el)el.textContent=v;'
+    +'}'
+    +'<'+'/scri'+'pt>'
     +'</body></html>';
 }
 
@@ -945,12 +1052,16 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     +'@import url("https://api.fontshare.com/v2/css?f[]=thunder@700&display=swap");'
     +'* { margin:0; padding:0; box-sizing:border-box; }'
     +'body { background:#e8e8e8; }'
-    +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:9px 20px;'
-    +'  display:flex; align-items:center; justify-content:space-between; z-index:200;'
+    +'.toolbar { position:fixed; top:0; left:0; right:0; background:#fff; padding:8px 16px;'
+    +'  display:flex; align-items:center; gap:10px; flex-wrap:wrap; z-index:200;'
     +'  box-shadow:0 2px 10px rgba(0,0,0,0.12); font-family:Arial,sans-serif; }'
-    +'.toolbar span { font-size:13px; color:#666; }'
-    +'.dl-btn { background:#c0392b; color:#fff; border:none; border-radius:6px;'
-    +'  padding:8px 20px; font-size:13px; font-weight:700; cursor:pointer; }'
+    +'.toolbar label { font-size:11px; color:#888; font-weight:600; margin-right:2px; }'
+    +'.toolbar input { border:1px solid #ddd; border-radius:5px; padding:5px 8px; font-size:12px; color:#222; outline:none; }'
+    +'.toolbar input:focus { border-color:#c0392b; }'
+    +'.t-name { width:160px; }'
+    +'.t-info { width:220px; }'
+    +'.dl-btn { background:#c0392b; color:#fff; border:none; border-radius:6px; margin-left:auto;'
+    +'  padding:7px 18px; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }'
     +'.poster-wrap { padding-top:56px; display:flex; justify-content:center; min-height:100vh; padding-bottom:24px; }'
     +'.poster { width:500px; height:700px; position:relative; background:#fce4e4;'
     +'  overflow:hidden; font-family:"Arial Black",Arial,sans-serif;'
@@ -1085,7 +1196,8 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     + escHtml(name) + ' – Rating Achieved</title>'
     + '<style>' + css + '</style></head><body>'
     + '<div class="toolbar">'
-    + '  <span>Rating Achieved Poster — ' + escHtml(name) + '</span>'
+    + '  <label>Name</label><input class="t-name" id="e-name" value="' + escHtml(name) + '" oninput="updName(this.value)">'
+    + '  <label>Rating Info</label><input class="t-info" id="e-info" value="' + escHtml(ratingInfo) + '" oninput="updInfo(this.value)">'
     + '  <button class="dl-btn" onclick="dlPNG()">&#11015; Download PNG</button>'
     + '</div>'
     + '<div class="poster-wrap"><div class="poster">'
@@ -1114,7 +1226,18 @@ function buildRatingAchievedHtml(name, ratingInfo, periodText, photoUri) {
     + '    </div>'
     + '  </div>'
     + '</div></div>'
-    + '<' + 'script>' + sc + '<' + '/scri' + 'pt>'
+    + '<' + 'script>' + sc
+    + 'function updName(v){'
+    + '  var el=document.querySelector(".player-name");'
+    + '  if(!el)return;'
+    + '  var up=v.toUpperCase();var ws=up.split(" ");var mid=Math.ceil(ws.length/2);'
+    + '  el.innerHTML=ws.slice(0,mid).join(" ")+(ws.length>1?"<br>"+ws.slice(mid).join(" "):"");'
+    + '}'
+    + 'function updInfo(v){'
+    + '  var el=document.querySelector(".rating-info");'
+    + '  if(el)el.textContent=v;'
+    + '}'
+    + '<' + '/scri' + 'pt>'
     + '</body></html>';
 }
 
@@ -1478,16 +1601,123 @@ function drawAndDownloadPoster() {
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
-  var names = ['achievers','got','stats'];
+  var names = ['achievers','got','stats','custom'];
   document.querySelectorAll('.tab').forEach(function(el, i) {
     el.classList.toggle('active', names[i] === tab);
   });
   document.getElementById('panel-achievers').classList.toggle('active', tab==='achievers');
   document.getElementById('panel-got').classList.toggle('active', tab==='got');
   document.getElementById('panel-stats').classList.toggle('active', tab==='stats');
+  document.getElementById('panel-custom').classList.toggle('active', tab==='custom');
   if (tab === 'achievers') loadAchievementsFromSheet();
   if (tab === 'got') loadGotRating();
   if (tab === 'stats') loadRatingStats();
+  if (tab === 'custom') { setTimeout(cpUpdate, 50); }
+}
+
+// ── Custom Poster ─────────────────────────────────────────────────────────────
+var cpPhotoUri = '';
+
+function setCpColor(hex) {
+  document.getElementById('cp-color').value = hex;
+  cpUpdate();
+}
+
+function handleCpPhoto(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) { cpPhotoUri = e.target.result; cpUpdate(); };
+  reader.readAsDataURL(file);
+}
+
+function cpUpdate() {
+  var type = document.getElementById('cp-type').value;
+  var name = (document.getElementById('cp-name').value || 'Student Name').trim();
+  var rank = parseInt(document.getElementById('cp-rank').value) || null;
+  var tourn = (document.getElementById('cp-tourn').value || '').trim();
+  var points = document.getElementById('cp-points').value;
+  var ratingType = document.getElementById('cp-rating-type').value;
+  var period = (document.getElementById('cp-period').value || 'July 2026').trim();
+  var color = document.getElementById('cp-color').value || '#1565C0';
+
+  // Show/hide conditional fields
+  document.getElementById('cp-rank-row').style.display    = (type === 'achiever') ? '' : 'none';
+  document.getElementById('cp-tourn-row').style.display   = (type !== 'rating_achieved') ? '' : 'none';
+  document.getElementById('cp-points-row').style.display  = (type === 'rating') ? '' : 'none';
+  document.getElementById('cp-achieved-rows').style.display = (type === 'rating_achieved') ? '' : 'none';
+
+  var savedColor = currentColor;
+  currentColor = color;
+
+  var posterHtml;
+  if (type === 'rating_achieved') {
+    var ratingInfo = ratingType + ' Rating — ' + period;
+    posterHtml = buildRatingAchievedHtml(name, ratingInfo, period, cpPhotoUri);
+  } else {
+    var posText;
+    if (type === 'achiever') {
+      posText = rank ? (rank === 1 ? '1ST PLACE' : rank === 2 ? '2ND PLACE' : rank === 3 ? '3RD PLACE' : rank + 'TH PLACE') : 'TOP ACHIEVER';
+    } else {
+      posText = 'FIDE RATING';
+    }
+    var ratingPoints = null;
+    if (type === 'rating' && points) {
+      var n = parseFloat(points);
+      if (!isNaN(n)) ratingPoints = (n > 0 ? '+' : '') + n;
+    }
+    posterHtml = buildPosterHtml(name, posText, tourn, cpPhotoUri, ratingPoints);
+  }
+  currentColor = savedColor;
+
+  var iframe = document.getElementById('cp-preview');
+  iframe.srcdoc = posterHtml;
+
+  // Scale preview to fit container
+  var wrap = document.getElementById('cp-scale-wrap');
+  var container = wrap.parentElement;
+  var availW = container.clientWidth - 40;
+  var scale = Math.min(1, availW / 540);
+  wrap.style.transform = 'scale(' + scale + ')';
+  wrap.style.marginBottom = (700 * scale - 700) + 'px';
+}
+
+function downloadCpPoster() {
+  var type = document.getElementById('cp-type').value;
+  var name = (document.getElementById('cp-name').value || 'poster').trim();
+  var rank = parseInt(document.getElementById('cp-rank').value) || null;
+  var tourn = (document.getElementById('cp-tourn').value || '').trim();
+  var points = document.getElementById('cp-points').value;
+  var ratingType = document.getElementById('cp-rating-type').value;
+  var period = (document.getElementById('cp-period').value || 'July 2026').trim();
+  var color = document.getElementById('cp-color').value || '#1565C0';
+
+  var savedColor2 = currentColor;
+  currentColor = color;
+
+  var posterHtml;
+  if (type === 'rating_achieved') {
+    var ratingInfo = ratingType + ' Rating — ' + period;
+    posterHtml = buildRatingAchievedHtml(name, ratingInfo, period, cpPhotoUri);
+  } else {
+    var posText;
+    if (type === 'achiever') {
+      posText = rank ? (rank === 1 ? '1ST PLACE' : rank === 2 ? '2ND PLACE' : rank === 3 ? '3RD PLACE' : rank + 'TH PLACE') : 'TOP ACHIEVER';
+    } else {
+      posText = 'FIDE RATING';
+    }
+    var ratingPoints = null;
+    if (type === 'rating' && points) {
+      var n = parseFloat(points);
+      if (!isNaN(n)) ratingPoints = (n > 0 ? '+' : '') + n;
+    }
+    posterHtml = buildPosterHtml(name, posText, tourn, cpPhotoUri, ratingPoints);
+  }
+  currentColor = savedColor2;
+
+  var w = window.open('', '_blank');
+  w.document.write(posterHtml);
+  w.document.close();
 }
 
 // ── Got Rating ────────────────────────────────────────────────────────────────
