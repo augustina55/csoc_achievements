@@ -26,8 +26,10 @@ var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','
 // ── doPost — handles write operations sent as JSON body ───────────────────────
 function doPost(e) {
   var body = {};
-  try { body = JSON.parse(e.postData.contents); } catch(_) {}
-  // Merge body fields into a parameter-like object so handler logic is shared
+  try {
+    var raw = e.postData ? e.postData.contents : '';
+    body = JSON.parse(raw);
+  } catch(_) {}
   var p = Object.assign({}, e.parameter, body);
   return _handle(p);
 }

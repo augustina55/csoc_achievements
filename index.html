@@ -1299,12 +1299,13 @@ function switchTab(tab) {
 // Set this to your deployed Google Apps Script Web App URL (sheet_api.gs)
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbwwxj4U-F2ScCcJPoGdutZzE4IrADWs6JQcwHSXxRaFLrAtmFAEXBUKSxfoUhE9CLj4Pg/exec';
 
-// POST helper — avoids URL length limits for write operations
+// POST helper — uses text/plain to avoid CORS preflight (GAS requirement)
 function gasPost(action, payload) {
+  var body = JSON.stringify(Object.assign({ action: action }, payload));
   return fetch(GAS_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign({ action: action }, payload))
+    headers: { 'Content-Type': 'text/plain' },
+    body: body
   }).then(function(r){ return r.json(); });
 }
 
