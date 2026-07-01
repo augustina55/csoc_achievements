@@ -1408,31 +1408,43 @@ function fetchGotRating() {
   var _mi = _monNames.indexOf(_mparts[1]);
   var _firstOfMonth = _mi >= 0 ? new Date(parseInt(_mparts[0]), _mi, 1) : null;
 
-  var srcPlayers = PLAYERS_DATA.filter(function(p) {
-    if (!p.fide_id) return false;
-    if (!p.subscription_end_date || !_firstOfMonth) return true; // no date info: include
+  var allWithFide = PLAYERS_DATA.filter(function(p){ return p.fide_id; });
+  var srcPlayers = allWithFide.filter(function(p) {
+    if (!p.subscription_end_date || !_firstOfMonth) return true;
     return new Date(p.subscription_end_date) >= _firstOfMonth;
   });
-  if (srcPlayers.length === 0) {
-    setMsg('No players loaded from sheet. Check that the GAS web app is deployed with the latest sheet_api.gs and the Players sheet has data.', '#c0392b');
+
+  if (allWithFide.length === 0) {
+    setMsg('No players loaded from sheet yet. Wait a moment and try again, or check GAS deployment.', '#c0392b');
     return;
   }
-  var total = srcPlayers.length, done = 0, results = [];
+  if (srcPlayers.length === 0) {
+    setMsg('0 players have subscription_end_date >= ' + month + '. Check subscription dates in the Players sheet.', '#c0392b');
+    return;
+  }
+
+  var total = srcPlayers.length, done = 0, gasErrors = 0, results = [];
   var LIMIT = 10, running = 0, queue = srcPlayers.slice();
   var tbody = document.getElementById('got-rating-tbody');
   tbody.innerHTML = '';
-  setMsg('Fetching 0 / ' + total + ' players from FIDE API…');
+  setMsg('Fetching ' + total + ' players via GAS proxy… (0 / ' + total + ')');
 
   function next() {
     while (running < LIMIT && queue.length > 0) {
       var p = queue.shift(); running++;
       (function(player) {
-        // Route through GAS to avoid CORS restriction on api.chesstools.org
         fetch(GAS_URL + '?action=fide_history&fide_id=' + encodeURIComponent(player.fide_id))
           .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(resp) {
-            var hist = (resp && resp.ok) ? resp.data : null;
             done++; running--;
+            if (!resp || !resp.ok) {
+              gasErrors++;
+              // If first few all fail with "Unknown action", GAS not redeployed
+              if (gasErrors === 3 && done <= 5) {
+                setMsg('GAS proxy not responding — please redeploy GAS web app with latest sheet_api.gs (add fide_history action).', '#c0392b');
+              }
+            }
+            var hist = (resp && resp.ok) ? resp.data : null;
             if (hist && hist.length > 0) {
               var sorted = hist.slice().sort(function(a,b){
                 return new Date(a.period+'-01') - new Date(b.period+'-01');
@@ -1444,28 +1456,33 @@ function fetchGotRating() {
                 var std  = cur.classical_rating || 0;
                 var rap  = cur.rapid_rating  || 0;
                 var bli  = cur.blitz_rating  || 0;
-                var gStd = !(prev.classical_rating) && std > 0;
-                var gRap = !(prev.rapid_rating)     && rap > 0;
-                var gBli = !(prev.blitz_rating)     && bli > 0;
+                var gStd = !prev.classical_rating && std > 0;
+                var gRap = !prev.rapid_rating     && rap > 0;
+                var gBli = !prev.blitz_rating     && bli > 0;
                 if (gStd || gRap || gBli) {
-                  // Compute status based on subscription_end_date
                   var effStatus = computePlayerStatus(player, month);
-                  var enriched = Object.assign({}, player, { status: effStatus });
-                  results.push({ player:enriched, std:std, rap:rap, bli:bli,
-                    gStd:gStd, gRap:gRap, gBli:gBli, period:month });
+                  results.push({ player: Object.assign({}, player, { status: effStatus }),
+                    std:std, rap:rap, bli:bli, gStd:gStd, gRap:gRap, gBli:gBli, period:month });
                 }
               }
             }
-            setMsg('Fetching ' + done + ' / ' + total + '…');
+            if (done < total) {
+              setMsg('Fetching ' + done + ' / ' + total + ' — found ' + results.length + ' so far…');
+            }
             renderGotRating(results, tbody);
             if (done === total) {
               document.getElementById('badge-got').textContent = results.length;
-              setMsg('✓ ' + results.length + ' players got new FIDE rating in ' + month + ' — saving to sheet…', '#1e7a3e');
-              if (GAS_URL) saveGotRatingToSheet(results, month);
+              var errNote = gasErrors > 0 ? ' (' + gasErrors + ' API errors)' : '';
+              if (results.length === 0) {
+                setMsg('Done — 0 results. No player got a new FIDE rating in ' + month + errNote, '#888');
+              } else {
+                setMsg('✓ ' + results.length + ' players got new FIDE rating in ' + month + errNote + ' — saving to sheet…', '#1e7a3e');
+                if (GAS_URL) saveGotRatingToSheet(results, month);
+              }
             }
             next();
           })
-          .catch(function(){ done++; running--; next(); });
+          .catch(function(){ done++; running--; gasErrors++; next(); });
       })(p);
     }
   }
