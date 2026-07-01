@@ -1415,9 +1415,35 @@ function fetchGotRating() {
   var month = selectedMonth();
   if (!month) return;
 
-  var srcPlayers = PLAYERS_DATA.filter(function(p){ return String(p.fide_id).trim(); });
+  // Parse selected month to a Date (first day)
+  var _mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var _p  = month.split('-');
+  var firstOfMonth = new Date(parseInt(_p[0]), _mn.indexOf(_p[1]), 1);
+
+  var srcPlayers = PLAYERS_DATA.filter(function(p) {
+    if (!String(p.fide_id).trim()) return false;
+    var st = Number(p.status);
+
+    if (st === 5) return true; // Pause: always include
+
+    if (st === 1) {
+      // Active: subscription_start_date <= selected month
+      if (!p.subscription_start_date) return true;
+      return new Date(p.subscription_start_date) <= firstOfMonth;
+    }
+
+    if (st === 2) {
+      // Expired: subscription_start_date <= selected month <= subscription_end_date
+      if (!p.subscription_start_date || !p.subscription_end_date) return false;
+      return new Date(p.subscription_start_date) <= firstOfMonth &&
+             new Date(p.subscription_end_date)   >= firstOfMonth;
+    }
+
+    return false; // status 3 (Upcoming) and others: skip
+  });
+
   if (srcPlayers.length === 0) {
-    setMsg('No players loaded from sheet yet. Wait a moment and try again.', '#c0392b');
+    setMsg('No players match the filter for ' + month + '. Check subscription dates and status in Players sheet.', '#c0392b');
     return;
   }
 
