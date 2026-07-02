@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Poster Design Preview</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#d8cfc3; display:flex; justify-content:center; align-items:flex-start; padding:40px; gap:40px; font-family:Arial,sans-serif; flex-wrap:wrap; }
+h2 { width:100%; text-align:center; margin-bottom:20px; color:#333; font-size:18px; }
+.label { text-align:center; font-size:13px; color:#666; margin-bottom:10px; font-weight:600; }
+
+/* ── Poster shell ── */
+.poster {
+  width:540px; height:700px; position:relative; overflow:hidden;
+  background-color:#cce8d8;
+  background-image:radial-gradient(circle,rgba(100,180,140,0.42) 2.5px,transparent 2.5px);
+  background-size:24px 24px;
+  font-family:Arial,Helvetica,sans-serif;
+  box-shadow:0 8px 32px rgba(0,0,0,.25);
+  flex-shrink:0;
+}
+
+/* ── Left strip ── */
+.strip {
+  position:absolute; left:50px; top:55px; width:190px; height:590px;
+  background:#1a7a4e;
+  border-top-left-radius:65px; border-bottom-left-radius:65px; z-index:2;
+}
+
+/* ── Strip text (vertical) ── */
+.champ-text {
+  position:absolute; right:300px; top:55px; writing-mode:vertical-rl;
+  text-orientation:mixed; transform:rotate(180deg); font-size:105px; font-weight:900;
+  font-family:"Arial Black",Arial,sans-serif; color:transparent;
+  -webkit-text-stroke:5px #ffffff; letter-spacing:0; white-space:nowrap; z-index:5;
+}
+/* Two-col variant (Rating Gained / Rating Achieved) */
+.champ-text-2col {
+  position:absolute; right:300px; top:55px; width:190px; height:420px;
+  display:flex; flex-direction:row; align-items:flex-start; justify-content:center;
+  padding-top:18px; gap:0px; z-index:5;
+}
+.champ-text-2col span {
+  writing-mode:vertical-rl; text-orientation:mixed; transform:rotate(180deg);
+  font-weight:900; font-family:"Arial Black",Arial,sans-serif;
+  color:transparent; -webkit-text-stroke:4px #ffffff; letter-spacing:4px; white-space:nowrap;
+}
+.champ-text-2col span:first-child { font-size:76px; margin-right:-10px; }  /* RATING 6 chars */
+.champ-text-2col span:last-child  { font-size:68px; }                       /* ACHIEVED 8 chars */
+.champ-text-2col span.gained      { font-size:78px; }                       /* GAINED 6 chars */
+
+/* ── Medal (top left) ── */
+.medal {
+  position:absolute; top:-1px; left:-40px; width:140px; z-index:1; pointer-events:none;
+}
+
+/* ── Profile circle (strip bottom) ── */
+.profile {
+  position:absolute; left:50px; bottom:10px; width:190px; height:190px;
+  border-radius:50%; overflow:hidden; background:#aaa; border:4px solid #fff; z-index:10;
+  display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px; font-weight:600;
+}
+
+/* ── White grid panel ── */
+.grid-panel {
+  position:absolute; left:238px; top:55px; width:302px; height:590px;
+  background:#fff; z-index:2; border:1.5px solid #c0c0c0;
+  box-shadow:-5px 0 16px rgba(0,0,0,.13),5px 5px 16px rgba(0,0,0,.09);
+  display:flex; flex-direction:column; padding:10px 14px 10px 14px;
+}
+
+.logo-area { text-align:center; flex-shrink:0; }
+.logo-area img { width:180px; height:100px; object-fit:contain; display:inline-block; }
+
+.student-name {
+  margin-top:6px; text-align:left;
+  font-family:Georgia,serif; font-size:30px; font-weight:900; color:#2c3e50;
+  text-transform:uppercase; line-height:1.2;
+  flex-shrink:0;
+}
+
+.div1 { margin-top:8px; height:2.5px; background:#1a7a4e; flex-shrink:0; }
+
+/* Achievement: rank + tournament */
+.ach-pos {
+  margin-top:15px; text-align:left;
+  font-size:18px; font-weight:700; color:#3a4a5c; line-height:1.5; flex-shrink:0;
+}
+.ach-tourn {
+  margin-top:10px; text-align:left;
+  font-size:16px; font-weight:600; color:#2c3e50; line-height:1.5; flex-shrink:0;
+}
+
+/* Rating gained: pill */
+.rating-pill-wrap {
+  margin-top:8px; display:flex; align-items:center; gap:14px; flex-shrink:0;
+}
+.rating-pill {
+  background:#2196F3; color:#fff; border-radius:10px; padding:8px 18px;
+  font-size:24px; font-weight:900; min-width:108px; text-align:center; flex-shrink:0;
+}
+.points-lbl { font-size:13px; font-weight:900; color:#1a2a3a; line-height:1.5; }
+
+
+.div2 { margin-top:20px; height:2px; background:#1a7a4e; opacity:0.45; flex-shrink:0; }
+
+.badge-row {
+  margin-top:10px; display:flex; align-items:flex-start; gap:0; flex-shrink:0;
+}
+.badge-icon { width:50px; height:50px; object-fit:contain; object-position:left center; flex-shrink:0; margin-left:-5px; margin-right:-12px; }
+.badge-txt {
+  font-size:15px; font-weight:600; color:#1565C0; line-height:1.25;
+  font-family:"Arial Black",Arial,sans-serif; letter-spacing:0.5px;
+  white-space:nowrap;
+}
+
+/* Proud line */
+.proud-line {
+  margin-top:15px; display:flex; align-items:center; gap:8px; flex-shrink:0;
+  border:1.5px solid #e53935; border-radius:20px; padding:5px 8px;
+}
+.csoc-circle {
+  width:26px; height:26px; border-radius:50%;
+  object-fit:cover; flex-shrink:0;
+}
+.proud-txt {
+  font-size:8.5px; font-weight:800; color:#0a1825;
+  font-family:Arial,sans-serif; white-space:nowrap;
+}
+.proud-txt .c-red { color:#b83030; }
+
+/* ── Chess pieces ── */
+.chess {
+  position:absolute; bottom:-145px; right:-120px; width:360px; height:450px;
+  z-index:10; object-fit:contain;
+}
+.chess-placeholder {
+  position:absolute; bottom:-30px; right:-80px; width:360px; height:400px;
+  z-index:10; background:rgba(0,100,50,0.12); border-radius:20px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:40px; color:rgba(0,80,40,0.3);
+}
+
+.footer-url { position:absolute; bottom:10px; right:14px; font-size:10px; color:#999; z-index:5; }
+</style>
+</head>
+<body>
+
+<div>
+  <div class="label">Achievement Poster (CHAMP)</div>
+  <div class="poster">
+    <img class="medal" src="images/medals.png" alt="">
+    <div class="strip"></div>
+    <div class="champ-text">CHAMP</div>
+    <div class="profile"><img src="image.webp" alt="" style="width:100%;height:100%;object-fit:cover;"></div>
+    <div class="grid-panel">
+      <div class="logo-area"><img src="images/cc_logo.svg" alt="CircleChess"></div>
+      <div class="student-name">Magnus<br>Carlsen</div>
+      <div class="div1"></div>
+      <div class="ach-pos">1ST PLACE</div>
+      <div class="ach-tourn">World Chess Championship 2026</div>
+      <div class="div2"></div>
+      <div class="proud-line">
+        <img src="csoc.png" class="csoc-circle" alt="">
+        <span class="proud-txt">PROUD <span class="c-red">CAISSA SCHOOL OF CHESS</span> STUDENT</span>
+      </div>
+    </div>
+    <img class="chess" src="images/chess_pieces.png" alt="">
+  </div>
+</div>
+
+<div>
+  <div class="label">Rating Gained Poster</div>
+  <div class="poster" style="background-color:#cce0f5;background-image:radial-gradient(circle,rgba(33,150,243,0.25) 2.5px,transparent 2.5px);background-size:24px 24px;">
+    <img class="medal" src="images/medals.png" alt="">
+    <div class="strip" style="background:#1565C0;"></div>
+    <div class="champ-text-2col">
+      <span>RATING</span><span class="gained">GAINED</span>
+    </div>
+    <div class="profile"><img src="image.webp" alt="" style="width:100%;height:100%;object-fit:cover;"></div>
+    <div class="grid-panel">
+      <div class="logo-area"><img src="images/cc_logo.svg" alt="CircleChess"></div>
+      <div class="student-name">Magnus<br>Carlsen</div>
+      <div class="div1" style="background:#1565C0;"></div>
+      <div class="rating-pill-wrap">
+        <div class="rating-pill">+111</div>
+        <div class="points-lbl">POINTS<br>GAINED</div>
+      </div>
+      <div class="r-dot-div"></div>
+      <div class="ach-tourn">World Chess Championship 2026</div>
+      <div class="div2" style="background:#1565C0;"></div>
+      <div class="proud-line">
+        <img src="csoc.png" class="csoc-circle" alt="">
+        <span class="proud-txt">PROUD <span class="c-red">CAISSA SCHOOL OF CHESS</span> STUDENT</span>
+      </div>
+    </div>
+    <img class="chess" src="images/chess_pieces.png" alt="">
+  </div>
+</div>
+
+<div>
+  <div class="label">Rating Achieved Poster</div>
+  <div class="poster" style="background-color:#cce0f5;background-image:radial-gradient(circle,rgba(33,150,243,0.25) 2.5px,transparent 2.5px);background-size:24px 24px;">
+    <img class="medal" src="images/medals.png" alt="">
+    <div class="strip" style="background:#1565C0;"></div>
+    <div class="champ-text-2col">
+      <span>RATING</span><span>ACHIEVED</span>
+    </div>
+    <div class="profile"><img src="image.webp" alt="" style="width:100%;height:100%;object-fit:cover;"></div>
+    <div class="grid-panel">
+      <div class="logo-area"><img src="images/cc_logo.svg" alt="CircleChess"></div>
+      <div class="student-name">Magnus<br>Carlsen</div>
+      <div class="div1" style="background:#1565C0;"></div>
+      <div class="badge-row">
+        <img src="achieved badge icon.png" class="badge-icon" alt="">
+        <span class="badge-txt">ACHIEVED INTERNATIONAL<br>FIDE RATING</span>
+      </div>
+      <div class="ach-pos">Classical Rating — July 2026</div>
+      <div class="div2" style="background:#1565C0;"></div>
+      <div class="proud-line">
+        <img src="csoc.png" class="csoc-circle" alt="">
+        <span class="proud-txt">PROUD <span class="c-red">CAISSA SCHOOL OF CHESS</span> STUDENT</span>
+      </div>
+    </div>
+    <img class="chess" src="images/chess_pieces.png" alt="">
+  </div>
+</div>
+
+</body>
+</html>
