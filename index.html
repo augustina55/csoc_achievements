@@ -547,7 +547,7 @@ function loadAchievementsFromSheet() {
       var rows = d.rows || [];
       if (rows.length === 0) {
         document.getElementById('achievers-tbody').innerHTML =
-          '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No data in sheet for '+month+'. Click "Fetch from API" to load.</td></tr>';
+          '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">No data in sheet for '+month+'. Click "Fetch from API" to load.</td></tr>';
         setAchMsg('No records for ' + month + '.', '#888');
         ACH_ROWS_LIVE = [];
         return;
@@ -869,10 +869,7 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     +".chess { position:absolute; bottom:-145px; right:-120px; width:360px; height:450px; z-index:10; object-fit:contain; }";
 
   var sc = [
-    "var BG=\""+bg+"\"",
-    "+\",ST=\""+strip+"\"",
-    "+\",RT="+(ratingPoints!==null?("\""+ratingPoints+"\""):"null")
-      +",SW="+JSON.stringify(stripWords)+",SL="+(stripLabel?("\""+stripLabel+"\""):"null")+";",
+    "var BG=\""+bg+"\""+",ST=\""+strip+"\""+",RT="+(ratingPoints!==null?("\""+ratingPoints+"\""):"null")+",SW="+JSON.stringify(stripWords)+",SL="+(stripLabel?("\""+stripLabel+"\""):"null")+";",
     "function wT(c,t,x,y,mw,lh){var ws=t.split(' '),ln='';for(var i=0;i<ws.length;i++){var ts=ln?ln+' '+ws[i]:ws[i];if(c.measureText(ts).width>mw&&ln){c.fillText(ln,x,y);ln=ws[i];y+=lh;}else ln=ts;}if(ln)c.fillText(ln,x,y);return y;}",
     "function dlPNG(){",
     "  var W=540,H=700,cv=document.createElement('canvas');cv.width=W;cv.height=H;",
