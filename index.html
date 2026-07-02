@@ -1868,24 +1868,11 @@ function fetchGotRating() {
 
   var srcPlayers = PLAYERS_DATA.filter(function(p) {
     if (!String(p.fide_id).trim()) return false;
-    var st = Number(p.status);
-
-    if (st === 5) return true; // Pause: always include
-
-    if (st === 1) {
-      // Active: subscription_start_date <= selected month
-      if (!p.subscription_start_date) return true;
-      return new Date(p.subscription_start_date) <= firstOfMonth;
-    }
-
-    if (st === 2) {
-      // Expired: subscription_start_date <= selected month <= subscription_end_date
-      if (!p.subscription_start_date || !p.subscription_end_date) return false;
-      return new Date(p.subscription_start_date) <= firstOfMonth &&
-             new Date(p.subscription_end_date)   >= firstOfMonth;
-    }
-
-    return false; // status 3 (Upcoming) and others: skip
+    if (!p.subscription_start_date || !p.subscription_end_date) return false;
+    // Active = subscription_start_date <= month <= subscription_end_date
+    var start = new Date(p.subscription_start_date);
+    var end   = new Date(p.subscription_end_date);
+    return start <= firstOfMonth && firstOfMonth <= end;
   });
 
   if (srcPlayers.length === 0) {
