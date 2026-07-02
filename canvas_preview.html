@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Canvas Download Preview</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#d8cfc3; display:flex; justify-content:center; align-items:flex-start; padding:40px; gap:40px; font-family:Arial,sans-serif; flex-wrap:wrap; }
+h2 { width:100%; text-align:center; margin-bottom:20px; color:#333; font-size:18px; }
+.col { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.label { font-size:13px; color:#666; font-weight:600; }
+canvas { box-shadow:0 8px 32px rgba(0,0,0,.25); display:block; }
+</style>
+</head>
+<body>
+
+<div class="col">
+  <div class="label">Achievement Poster (CHAMP)</div>
+  <canvas id="c1" width="540" height="700"></canvas>
+</div>
+<div class="col">
+  <div class="label">Rating Gained Poster</div>
+  <canvas id="c2" width="540" height="700"></canvas>
+</div>
+<div class="col">
+  <div class="label">Rating Achieved Poster</div>
+  <canvas id="c3" width="540" height="700"></canvas>
+</div>
+
+<script>
+function wT(c,t,x,y,mw,lh){var ws=t.split(" "),ln="";for(var i=0;i<ws.length;i++){var ts=ln?ln+" "+ws[i]:ws[i];if(c.measureText(ts).width>mw&&ln){c.fillText(ln,x,y);ln=ws[i];y+=lh;}else ln=ts;}if(ln)c.fillText(ln,x,y);return y;}
+
+function drawPoster(cv, cfg) {
+  var BG = cfg.bg, ST = cfg.strip, RT = cfg.rt || null;
+  var SW = cfg.sw || null, SL = cfg.sl || null;
+  var name = cfg.name || "Magnus Carlsen";
+  var posText = cfg.posText || "";
+  var tourn = cfg.tourn || "";
+  var photoSrc = cfg.photo || "image.webp";
+  var badgeSrc = cfg.badge || "achieved badge icon.png";
+  var medalSrc = "images/medals.png";
+  var chessSrc = "images/chess_pieces.png";
+  var logoSrc  = "images/cc_logo.svg";
+  var csocSrc  = "csoc.png";
+
+  var ctx = cv.getContext("2d");
+  var W=540, H=700;
+
+  var medalImg = new Image();
+  medalImg.onload = function() { render(medalImg); };
+  medalImg.onerror = function() { render(null); };
+  medalImg.src = medalSrc;
+
+  function render(mdImg) {
+
+  // Background
+  ctx.fillStyle = BG;
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = "rgba(100,180,140,0.42)";
+  for(var dy=12;dy<H;dy+=24) for(var dx=12;dx<W;dx+=24){ctx.beginPath();ctx.arc(dx,dy,2.5,0,Math.PI*2);ctx.fill();}
+
+  // Medal BEHIND strip
+  if(mdImg) ctx.drawImage(mdImg,-40,-1,140,220);
+
+  // Strip
+  var sx=50,sy=55,sw2=190,sh=590,sr=65;
+  ctx.beginPath();ctx.moveTo(sx+sr,sy);ctx.lineTo(sx+sw2,sy);ctx.lineTo(sx+sw2,sy+sh);ctx.lineTo(sx+sr,sy+sh);ctx.quadraticCurveTo(sx,sy+sh,sx,sy+sh-sr);ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);ctx.closePath();ctx.fillStyle=ST;ctx.fill();
+
+  // Strip text
+  if(SW){
+    var s1=SW[0].split("").reverse(), s2=(SW[1]||"").split("").reverse();
+    var fz1=76, fz2=(SL==="RATING ACHIEVED"?68:78);
+    var step1=58, step2=(SL==="RATING ACHIEVED"?56:60);
+    var c1=sx+75, c2=sx+155;
+    ctx.strokeStyle="rgba(255,255,255,0.9)";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.font="900 "+fz1+"px Arial,sans-serif";ctx.lineWidth=4;
+    for(var i=0;i<s1.length;i++){ctx.save();ctx.translate(c1,sy+18+fz1/2+i*step1);ctx.rotate(-Math.PI/2);ctx.strokeText(s1[i],0,0);ctx.restore();}
+    ctx.font="900 "+fz2+"px Arial,sans-serif";
+    for(var j=0;j<s2.length;j++){ctx.save();ctx.translate(c2,sy+18+fz2/2+j*step2);ctx.rotate(-Math.PI/2);ctx.strokeText(s2[j],0,0);ctx.restore();}
+  } else {
+    var chs=["P","M","A","H","C"];
+    ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";ctx.lineWidth=5;ctx.textAlign="center";ctx.textBaseline="middle";
+    for(var k=0;k<chs.length;k++){ctx.save();ctx.translate(sx+150,sy+52+k*88);ctx.rotate(-Math.PI/2);ctx.strokeText(chs[k],0,0);ctx.restore();}
+  }
+
+  // White grid panel
+  var px=238,py=55,pw=302,ph=590;
+  ctx.save();ctx.shadowColor="rgba(0,0,0,0.13)";ctx.shadowBlur=16;ctx.shadowOffsetX=-5;ctx.shadowOffsetY=4;ctx.fillStyle="#fff";ctx.fillRect(px,py,pw,ph);ctx.restore();
+  ctx.strokeStyle="#c0c0c0";ctx.lineWidth=1;ctx.strokeRect(px,py,pw,ph);
+
+  // Name
+  var nameParts = name.trim().split(" ");
+  var nmLines = [nameParts[0].toUpperCase()];
+  if(nameParts.length>1) nmLines.push(nameParts.slice(1).join(" ").toUpperCase());
+  ctx.fillStyle="#2c3e50";ctx.font="900 30px Georgia,serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";
+  var nY=py+110+8+36;
+  ctx.fillText(nmLines[0]||"",px+14,nY);
+  if(nmLines[1]){nY+=36;ctx.fillText(nmLines[1],px+14,nY);}
+
+  // div1
+  var d1Y=nY+8;ctx.fillStyle=ST;ctx.fillRect(px+14,d1Y,pw-28,2.5);
+  var cY=d1Y+2.5;
+
+  // Content by type
+  var badgeY = null;
+  if(SL==="RATING ACHIEVED"){
+    cY+=10;
+    badgeY = cY;
+    ctx.fillStyle="#1565C0";ctx.font="900 15px Arial,sans-serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";
+    ctx.fillText("ACHIEVED INTERNATIONAL",px+62,cY+18);ctx.fillText("FIDE RATING",px+62,cY+18+19);
+    cY+=60;
+    if(posText){ctx.fillStyle="#3a4a5c";ctx.font="700 18px Arial,sans-serif";ctx.fillText(posText,px+14,cY+18);cY+=28;}
+    cY+=20;
+  } else if(RT){
+    cY+=8;
+    var rpX=px+14,rpY=cY,rpW=108,rpH=48,rpRad=10;
+    ctx.save();ctx.shadowColor="transparent";ctx.fillStyle="#2196F3";
+    ctx.beginPath();ctx.moveTo(rpX+rpRad,rpY);ctx.lineTo(rpX+rpW-rpRad,rpY);ctx.quadraticCurveTo(rpX+rpW,rpY,rpX+rpW,rpY+rpRad);ctx.lineTo(rpX+rpW,rpY+rpH-rpRad);ctx.quadraticCurveTo(rpX+rpW,rpY+rpH,rpX+rpW-rpRad,rpY+rpH);ctx.lineTo(rpX+rpRad,rpY+rpH);ctx.quadraticCurveTo(rpX,rpY+rpH,rpX,rpY+rpH-rpRad);ctx.lineTo(rpX,rpY+rpRad);ctx.quadraticCurveTo(rpX,rpY,rpX+rpRad,rpY);ctx.closePath();ctx.fill();ctx.restore();
+    ctx.fillStyle="#fff";ctx.font="900 24px Arial,sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(RT,rpX+rpW/2,rpY+rpH/2);
+    ctx.fillStyle="#1a2a3a";ctx.font="900 13px Arial,sans-serif";ctx.textAlign="left";ctx.fillText("POINTS",rpX+rpW+14,rpY+rpH/2-9);ctx.fillText("GAINED",rpX+rpW+14,rpY+rpH/2+9);
+    cY+=rpH+10;
+    if(tourn){ctx.fillStyle="#2c3e50";ctx.font="600 16px Arial,sans-serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";cY=wT(ctx,tourn,px+14,cY+16,pw-28,20)+6;}
+    cY+=20;
+  } else {
+    cY+=15;
+    if(posText){ctx.fillStyle="#3a4a5c";ctx.font="700 18px Arial,sans-serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";ctx.fillText(posText,px+14,cY+18);cY+=28;}
+    if(tourn){ctx.fillStyle="#2c3e50";ctx.font="600 16px Arial,sans-serif";ctx.fillText(tourn,px+14,cY+16);cY+=26;}
+    cY+=10;
+  }
+
+  // div2
+  ctx.fillStyle=ST;ctx.globalAlpha=0.45;ctx.fillRect(px+14,cY,pw-28,2);ctx.globalAlpha=1;cY+=2;
+
+  // Proud line
+  var plY=cY+20,plX=px+10,plW=pw-20,plH=36,plR=18;
+  ctx.save();ctx.strokeStyle="#e53935";ctx.lineWidth=1.5;ctx.beginPath();
+  ctx.moveTo(plX+plR,plY);ctx.lineTo(plX+plW-plR,plY);ctx.quadraticCurveTo(plX+plW,plY,plX+plW,plY+plR);
+  ctx.lineTo(plX+plW,plY+plH-plR);ctx.quadraticCurveTo(plX+plW,plY+plH,plX+plW-plR,plY+plH);
+  ctx.lineTo(plX+plR,plY+plH);ctx.quadraticCurveTo(plX,plY+plH,plX,plY+plH-plR);
+  ctx.lineTo(plX,plY+plR);ctx.quadraticCurveTo(plX,plY,plX+plR,plY);ctx.closePath();ctx.stroke();ctx.restore();
+  ctx.font="800 8.5px Arial,sans-serif";ctx.textBaseline="middle";ctx.textAlign="left";
+  var pl1="PROUD ",pl2="CAISSA SCHOOL OF CHESS",pl3=" STUDENT",tX=plX+36,tY=plY+plH/2;
+  var w1=ctx.measureText(pl1).width,w2=ctx.measureText(pl2).width;
+  ctx.fillStyle="#0a1825";ctx.fillText(pl1,tX,tY);ctx.fillStyle="#b83030";ctx.fillText(pl2,tX+w1,tY);ctx.fillStyle="#0a1825";ctx.fillText(pl3,tX+w1+w2,tY);
+
+  // Async image loads
+  var tot = SL==="RATING ACHIEVED" ? 5 : 4;
+  var dn = 0;
+  function od(){dn++;}
+
+  function di(src,dx,dy,dw,dh){var i=new Image();i.onload=function(){ctx.drawImage(i,dx,dy,dw,dh);od();};i.onerror=od;i.src=src;}
+  function dc(src,cx,cy,cr){var i=new Image();i.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i,cx-cr,cy-cr,cr*2,cr*2);ctx.restore();ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.strokeStyle="#fff";ctx.lineWidth=4;ctx.stroke();od();};i.onerror=od;i.src=src;}
+  function dcs(src,cx,cy,cr){var i=new Image();i.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i,cx-cr,cy-cr,cr*2,cr*2);ctx.restore();od();};i.onerror=od;i.src=src;}
+  function dib(src,dx,dy,dw,dh){var i=new Image();i.onload=function(){ctx.drawImage(i,dx,dy,dw,dh);od();};i.onerror=od;i.src=src;}
+
+  var chessY = plY + plH + 8;
+  var chessH = H - chessY + 80;
+  var chessW = Math.round(chessH * (360/450));
+  di(chessSrc, W - chessW + 120, chessY, chessW, chessH);
+  di(logoSrc,px+(pw-180)/2,py+10,180,80);
+  dc(photoSrc,145,595,95);
+  dcs(csocSrc,plX+18,plY+plH/2,13);
+  if(SL==="RATING ACHIEVED" && badgeY!==null){
+    dib(badgeSrc,px+9,badgeY-11,60,60);
+  }
+  } // end render
+}
+
+// Poster 1: Achievement/CHAMP
+drawPoster(document.getElementById('c1'), {
+  bg: '#cce8d8',
+  strip: '#1a7a4e',
+  sw: null, sl: null, rt: null,
+  name: 'Magnus Carlsen',
+  posText: '1ST PLACE',
+  tourn: 'World Chess Championship 2026'
+});
+
+// Poster 2: Rating Gained
+drawPoster(document.getElementById('c2'), {
+  bg: '#cce0f5',
+  strip: '#1565C0',
+  sw: ['RATING','GAINED'], sl: 'RATING GAINED', rt: '+111',
+  name: 'Magnus Carlsen',
+  posText: '',
+  tourn: 'World Chess Championship 2026'
+});
+
+// Poster 3: Rating Achieved
+drawPoster(document.getElementById('c3'), {
+  bg: '#cce0f5',
+  strip: '#1565C0',
+  sw: ['RATING','ACHIEVED'], sl: 'RATING ACHIEVED', rt: null,
+  name: 'Magnus Carlsen',
+  posText: 'Classical Rating — July 2026',
+  tourn: ''
+});
+</script>
+</body>
+</html>
