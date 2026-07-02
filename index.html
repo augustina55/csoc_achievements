@@ -2080,6 +2080,8 @@ function loadRatingStats() {
   if (wrap) wrap.innerHTML = '';
   _statsPopupData = {};
 
+  // Ensure players are loaded first, then fetch stats
+  loadPlayersFromGAS(function() {
   fetch(GAS_URL + '?action=read_all_got_rating')
     .then(function(r){ return r.json(); })
     .then(function(d) {
@@ -2091,14 +2093,21 @@ function loadRatingStats() {
       var playerMap = {};
       PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id).trim()] = p; });
 
-      // Helper: parse "YYYY-Mon" period → Date (1st of month)
+      // Helper: parse "YYYY-Mon" period → local Date (1st of month, midnight)
       var monIdx = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
       function periodToDate(per) {
         var parts = String(per).split('-');
-        var y = parseInt(parts[0])||0;
-        var m = monIdx[parts[1]];
+        var y = parseInt(parts[0])||0, m = monIdx[parts[1]];
         if (!y || m === undefined) return null;
         return new Date(y, m, 1);
+      }
+      // Parse any date string to local midnight Date to avoid UTC offset issues
+      function parseDate(s) {
+        if (!s) return null;
+        var str = String(s).slice(0,10); // "YYYY-MM-DD"
+        var p = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (!p) return null;
+        return new Date(parseInt(p[1]), parseInt(p[2])-1, parseInt(p[3]));
       }
 
       // Group by period
@@ -2111,10 +2120,10 @@ function loadRatingStats() {
         var pd = periodToDate(period);
         var player = playerMap[fideId];
         var isActive = false;
-        if (pd && player && player.subscription_start_date && player.subscription_end_date) {
-          var start = new Date(player.subscription_start_date);
-          var end   = new Date(player.subscription_end_date);
-          isActive  = (pd >= start && pd <= end);
+        if (pd && player) {
+          var start = parseDate(player.subscription_start_date);
+          var end   = parseDate(player.subscription_end_date);
+          if (start && end) isActive = (pd >= start && pd <= end);
         }
         if (!monthMap[period]) monthMap[period] = {
           active:    { players:[] },
@@ -2188,6 +2197,7 @@ function loadRatingStats() {
     .catch(function() {
       if (msg) { msg.textContent = 'Could not load stats. Check GAS_URL.'; msg.style.color = '#c0392b'; }
     });
+  }); // end loadPlayersFromGAS callback
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
