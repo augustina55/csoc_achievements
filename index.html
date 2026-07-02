@@ -2060,23 +2060,13 @@ function saveAchievementsToSheet(srcRows, month) {
             r.rank||'', r.rating_change!==null && r.rating_change!==undefined ? r.rating_change : '',
             r.is_rated ? 'RATED' : '', r.date||''];
   });
-  var BATCH = 50, totalAdded = 0, batches = Math.ceil(allRows.length / BATCH), done = 0;
-  function sendBatch(i) {
-    if (i >= allRows.length) {
-      setAchMsg('✓ Saved ' + totalAdded + ' new rows to sheet (' + allRows.length + ' total)', '#1e7a3e');
-      return;
-    }
-    var chunk = allRows.slice(i, i + BATCH);
-    gasPost('write_achievements', {rows: chunk})
-      .then(function(d){
-        if (d.ok) totalAdded += (d.added || 0);
-        done++;
-        setAchMsg('Saving… batch ' + done + '/' + batches, '#888');
-        sendBatch(i + BATCH);
-      })
-      .catch(function(){ sendBatch(i + BATCH); });
-  }
-  sendBatch(0);
+  setAchMsg('Saving ' + allRows.length + ' rows to sheet…', '#888');
+  gasPost('write_achievements', {rows: allRows})
+    .then(function(d){
+      if (d.ok) setAchMsg('✓ Saved — ' + (d.added||0) + ' new rows added (' + allRows.length + ' total)', '#1e7a3e');
+      else setAchMsg('Sheet error: ' + (d.error||'unknown'), '#c0392b');
+    })
+    .catch(function(){ setAchMsg('Could not reach sheet.', '#c0392b'); });
 }
 
 // ── Rating Stats tab ──────────────────────────────────────────────────────────

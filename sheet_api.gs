@@ -22,6 +22,7 @@ var PLAYERS_HEADERS = ['Player Name','FIDE ID','Mobile','Subscription Start','Su
 var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Subscription End','Period','Classical','Rapid','Blitz','Saved At'];
 var STATUS_LABELS   = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
 var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Saved At'];
+var CONSENT_HEADERS = ['Player Name','Mobile','FIDE ID','Consent'];
 
 // ── doPost — handles write operations sent as JSON body ───────────────────────
 function doPost(e) {
@@ -129,6 +130,33 @@ function _handle(p) {
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id + tournament
       result = { ok: true, added: added, skipped: rows.length - added };
+
+    } else if (action === 'read_consent') {
+      var sh = getOrCreateSheet(ss, 'Consent', CONSENT_HEADERS);
+      var all = sh.getDataRange().getValues();
+      var rows = all.length < 2 ? [] : all.slice(1);
+      result = { ok: true, rows: rows };
+
+    } else if (action === 'write_consent') {
+      var fideId  = String(p.fide_id  || '').trim();
+      var name    = String(p.name     || '').trim();
+      var mobile  = String(p.mobile   || '').trim();
+      var consent = String(p.consent  || 'No').trim();
+      if (!fideId) { result = { ok: false, error: 'Missing fide_id' }; }
+      else {
+        var sh = getOrCreateSheet(ss, 'Consent', CONSENT_HEADERS);
+        var all = sh.getDataRange().getValues();
+        var rowNum = -1;
+        for (var i = 1; i < all.length; i++) {
+          if (String(all[i][2]).trim() === fideId) { rowNum = i + 1; break; }
+        }
+        if (rowNum > 0) {
+          sh.getRange(rowNum, 1, 1, 4).setValues([[name, mobile, fideId, consent]]);
+        } else {
+          sh.appendRow([name, mobile, fideId, consent]);
+        }
+        result = { ok: true };
+      }
 
     } else if (action === 'fide_history') {
       // CORS proxy: fetch FIDE rating history server-side and return to browser
