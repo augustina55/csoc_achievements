@@ -173,17 +173,17 @@
 </header>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('achievers')">★ Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
-  <div class="tab" onclick="switchTab('got')">🎖 Got Rating <span class="tab-badge" id="badge-got">—</span></div>
-  <div class="tab" onclick="switchTab('stats')">📊 Rating Stats</div>
-  <div class="tab" onclick="switchTab('custom')">🎨 Custom Poster</div>
+  <div class="tab active" onclick="switchTab('achievers')">Achievers <span class="tab-badge gold" id="badge-achievers">—</span></div>
+  <div class="tab" onclick="switchTab('got')">Got Rating <span class="tab-badge" id="badge-got">—</span></div>
+  <div class="tab" onclick="switchTab('stats')">Rating Stats</div>
+  <div class="tab" onclick="switchTab('custom')">Custom Poster</div>
 </div>
 
 <!-- Achievers -->
 <div class="panel active" id="panel-achievers">
   <div class="achievers-panel">
     <div class="achievers-header">
-      <span class="achievers-title">★ Achievers</span>
+      <span class="achievers-title">Achievers</span>
       <div id="ach-save-msg" style="font-size:0.81rem;color:#888;"></div>
       <div class="filter-row">
         <select id="ach-month-sel" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);font-size:0.82rem;background:var(--surface);color:var(--text)"></select>
@@ -195,7 +195,7 @@
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Mobile</th><th>Status</th><th>Tournament</th><th>Date</th>
+          <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th><th>Tournament</th><th>Date</th>
           <th>Rank</th><th>Rating ±</th><th></th>
         </tr></thead>
         <tbody id="achievers-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
@@ -218,7 +218,7 @@
     <div class="table-wrap" style="margin-top:6px">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Mobile</th><th>Status</th>
+          <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th>
           <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th><th></th>
         </tr></thead>
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
@@ -231,9 +231,9 @@
 <div class="panel" id="panel-stats">
   <div class="achievers-panel">
     <div class="achievers-header" style="flex-wrap:wrap;gap:10px">
-      <span class="achievers-title">📊 Rating Stats</span>
+      <span class="achievers-title">Rating Stats</span>
       <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
-        <button class="filter-btn active" onclick="loadRatingStats()" style="padding:5px 16px">🔄 Refresh</button>
+        <button class="filter-btn active" onclick="loadRatingStats()" style="padding:5px 16px">Refresh</button>
       </div>
     </div>
     <div id="stats-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Loading…</div>
@@ -497,10 +497,13 @@ function renderAchieversTable(data) {
     var typeCls = type==='rating' ? 'type-rating' : (type==='both' ? 'type-both' : 'type-rank');
     var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
     var mobile  = _pMobMap[String(r.player_name||'').toLowerCase()] || '—';
+    var _pObj   = PLAYERS_DATA.find(function(p){ return p.player_name.toLowerCase()===String(r.player_name||'').toLowerCase(); });
+    var consent = _pObj && CONSENT_DATA[String(_pObj.fide_id||'').trim()] === 'Yes';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
       '<td style="font-weight:600;white-space:nowrap">'+(r.player_name||'')+'</td>' +
       '<td style="color:var(--text2)">'+mobile+'</td>' +
+      '<td style="text-align:center">'+(consent?'<span style="color:#16a34a;font-weight:700;font-size:1rem">&#10003;</span>':'<span style="color:#ccc">—</span>')+'</td>' +
       '<td>'+statusLabel(r.status)+'</td>' +
       '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--text);text-decoration:none" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td style="white-space:nowrap;color:var(--text2)">'+fmtDate(r.date||'')+'</td>' +
@@ -1765,8 +1768,23 @@ function _flushPlayerCallbacks() {
   cbs.forEach(function(fn){ fn(); });
 }
 
+// ── Consent data (Consent sheet: Name, Mobile, FIDE ID, Consent) ─────────────
+var CONSENT_DATA = {}; // fide_id → 'Yes'|'No'
+function loadConsent() {
+  if (!GAS_URL) return;
+  fetch(GAS_URL + '?action=read_consent')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      (d.rows || []).forEach(function(row){
+        var fid = String(row[2]||'').trim();
+        if (fid) CONSENT_DATA[fid] = String(row[3]||'').trim();
+      });
+    }).catch(function(){});
+}
+
 // Start loading immediately on page load
 loadPlayersFromGAS();
+loadConsent();
 
 // Build month options: Jan 2026 → current month, newest first
 (function buildMonthSel() {
@@ -1905,8 +1923,14 @@ function fetchGotRating() {
                 var gRap = !prev.rapid_rating     && rap > 0;
                 var gBli = !prev.blitz_rating     && bli > 0;
                 if (gStd || gRap || gBli) {
-                  results.push({ player:player, std:std, rap:rap, bli:bli,
-                    gStd:gStd, gRap:gRap, gBli:gBli, period:month });
+                  var entry = { player:player, std:std, rap:rap, bli:bli,
+                    gStd:gStd, gRap:gRap, gBli:gBli, period:month };
+                  results.push(entry);
+                  // Fetch FIDE name and update cr_name for display + sheet save
+                  fetch('https://api.chesstools.org/fide/player_info/?fide_id='+encodeURIComponent(player.fide_id)+'&history=false')
+                    .then(function(nr){ return nr.ok ? nr.json() : null; })
+                    .then(function(info){ if(info && info.name) player.cr_name = info.name; })
+                    .catch(function(){});
                 }
               }
             }
@@ -2047,93 +2071,94 @@ function saveAchievementsToSheet(srcRows, month) {
 }
 
 // ── Rating Stats tab ──────────────────────────────────────────────────────────
+var _statsPopupData = {};
 function loadRatingStats() {
   var msg = document.getElementById('stats-msg');
   var wrap = document.getElementById('stats-table-wrap');
   if (!GAS_URL) { if (msg) msg.textContent = 'GAS_URL not configured.'; return; }
-  if (msg) { msg.textContent = 'Loading all Got Rating data from sheet…'; msg.style.color = '#888'; }
+  if (msg) { msg.textContent = 'Loading…'; msg.style.color = '#888'; }
   if (wrap) wrap.innerHTML = '';
+  _statsPopupData = {};
 
   fetch(GAS_URL + '?action=read_all_got_rating')
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (!d.ok) { if (msg) { msg.textContent = 'Error: ' + d.error; msg.style.color = '#c0392b'; } return; }
       var rows = d.rows || [];
-      if (rows.length === 0) {
-        if (msg) msg.textContent = 'No Got Rating data found in sheet.';
-        return;
+      if (rows.length === 0) { if (msg) msg.textContent = 'No Got Rating data found in sheet.'; return; }
+
+      // Build player lookup by fide_id
+      var playerMap = {};
+      PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id).trim()] = p; });
+
+      // Helper: parse "YYYY-Mon" period → Date (1st of month)
+      var monIdx = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+      function periodToDate(per) {
+        var parts = String(per).split('-');
+        var y = parseInt(parts[0])||0;
+        var m = monIdx[parts[1]];
+        if (!y || m === undefined) return null;
+        return new Date(y, m, 1);
       }
 
-      // Row columns: [Name, FIDE ID, Status, Period, Classical, Rapid, Blitz, Saved At]
-      // Group by Period → Active/Non-Active → counts per type
-      var monthMap = {}; // period → { active: {std,rap,bli}, nonactive: {std,rap,bli} }
+      // Group by period
+      // Sheet cols: Name(0),FIDE ID(1),Status(2),Sub End(3),Period(4),Classical(5),Rapid(6),Blitz(7)
+      var monthMap = {};
       rows.forEach(function(row) {
-        // Sheet cols: Name(0),FIDE ID(1),Status(2),Sub End(3),Period(4),Classical(5),Rapid(6),Blitz(7)
-        var period  = String(row[4] || '');
-        var statusVal = String(row[2] || ''); // label: Active/Expired/Upcoming/Pause
-        var isActive = (statusVal === 'Active' || statusVal === '1');
-        var std     = Number(row[5]) > 0 ? 1 : 0;
-        var rap     = Number(row[6]) > 0 ? 1 : 0;
-        var bli     = Number(row[7]) > 0 ? 1 : 0;
-        if (!period) return;
+        var period = String(row[4] || '');
+        var fideId = String(row[1] || '').trim();
+        if (!period || !fideId) return;
+        var pd = periodToDate(period);
+        var player = playerMap[fideId];
+        var isActive = false;
+        if (pd && player && player.subscription_start_date && player.subscription_end_date) {
+          var start = new Date(player.subscription_start_date);
+          var end   = new Date(player.subscription_end_date);
+          isActive  = (pd >= start && pd <= end);
+        }
         if (!monthMap[period]) monthMap[period] = {
-          active:    { std:0, rap:0, bli:0, total:0 },
-          nonactive: { std:0, rap:0, bli:0, total:0 }
+          active:    { players:[] },
+          nonactive: { players:[] }
         };
-        var bucket = isActive ? monthMap[period].active : monthMap[period].nonactive;
-        bucket.std   += std;
-        bucket.rap   += rap;
-        bucket.bli   += bli;
-        bucket.total += (std || rap || bli ? 1 : 0);
+        var pObj = Object.assign({}, player || { player_name:row[0], fide_id:fideId });
+        pObj._std = Number(row[5])||0;
+        pObj._rap = Number(row[6])||0;
+        pObj._bli = Number(row[7])||0;
+        (isActive ? monthMap[period].active : monthMap[period].nonactive).players.push(pObj);
       });
 
-      // Sort months descending (YYYY-Mon format)
       var monOrder = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       var periods = Object.keys(monthMap).sort(function(a, b) {
-        var ap = a.split('-'), bp = b.split('-');
-        var ay = parseInt(ap[0])||0, by = parseInt(bp[0])||0;
-        if (ay !== by) return by - ay;
-        return monOrder.indexOf(bp[1]) - monOrder.indexOf(ap[1]);
+        var ap=a.split('-'),bp=b.split('-');
+        var ay=parseInt(ap[0])||0,by=parseInt(bp[0])||0;
+        if (ay!==by) return by-ay;
+        return monOrder.indexOf(bp[1])-monOrder.indexOf(ap[1]);
       });
 
-      var html = '<table style="border-collapse:collapse;min-width:720px;font-size:0.84rem">'
+      _statsPopupData = monthMap;
+
+      var cs = 'padding:9px 14px;text-align:center;border:1px solid var(--border)';
+      var html = '<table style="border-collapse:collapse;font-size:0.85rem">'
         + '<thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">'
-        + '<th rowspan="2" style="padding:10px 14px;text-align:left;border:1px solid var(--border)">Month</th>'
-        + '<th colspan="4" style="padding:8px 14px;text-align:center;background:#d1fae5;border:1px solid var(--border)">Active</th>'
-        + '<th colspan="4" style="padding:8px 14px;text-align:center;background:#fee2e2;border:1px solid var(--border)">Non-Active</th>'
-        + '</tr><tr style="background:var(--surface2)">'
-        + '<th style="padding:7px 12px;border:1px solid var(--border);white-space:nowrap">Classical</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border)">Rapid</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border)">Blitz</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border);background:#d1fae5">Total</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border);white-space:nowrap">Classical</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border)">Rapid</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border)">Blitz</th>'
-        + '<th style="padding:7px 12px;border:1px solid var(--border);background:#fee2e2">Total</th>'
+        + '<th style="padding:10px 16px;text-align:left;border:1px solid var(--border)">Month</th>'
+        + '<th style="padding:10px 16px;border:1px solid var(--border);background:#d1fae5">Active</th>'
+        + '<th style="padding:10px 16px;border:1px solid var(--border);background:#fee2e2">Non-Active</th>'
         + '</tr></thead><tbody>';
 
       periods.forEach(function(p) {
         var d = monthMap[p];
-        var grandTotal = d.active.total + d.nonactive.total;
+        var ac = d.active.players.length, nc = d.nonactive.players.length;
+        var key = JSON.stringify(p);
         html += '<tr style="border-bottom:1px solid var(--border)">'
-          + '<td style="padding:9px 14px;font-weight:600;border:1px solid var(--border)">' + p + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.std || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.rap || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.active.bli || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border);background:#f0fdf4;font-weight:700;color:#059669">' + (d.active.total || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.std || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.rap || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border)">' + (d.nonactive.bli || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;border:1px solid var(--border);background:#fff5f5;font-weight:700;color:#dc2626">' + (d.nonactive.total || '—') + '</td>'
+          + '<td style="padding:9px 16px;font-weight:600;border:1px solid var(--border)">' + p + '</td>'
+          + '<td style="'+cs+';background:#f0fdf4;font-weight:700;color:#059669;cursor:pointer" onclick="showStatsPopup(\''+p+' — Active\',_statsPopupData[\''+p+'\'].active.players)">'+(ac||'—')+'</td>'
+          + '<td style="'+cs+';background:#fff5f5;font-weight:700;color:#dc2626;cursor:pointer" onclick="showStatsPopup(\''+p+' — Non-Active\',_statsPopupData[\''+p+'\'].nonactive.players)">'+(nc||'—')+'</td>'
           + '</tr>';
       });
 
       html += '</tbody></table>';
       if (wrap) wrap.innerHTML = html;
-      if (msg) {
-        msg.textContent = 'Showing ' + periods.length + ' months, ' + rows.length + ' records total';
-        msg.style.color = '#1e7a3e';
-      }
+      if (msg) { msg.textContent = periods.length + ' months, ' + rows.length + ' records'; msg.style.color = '#1e7a3e'; }
     })
     .catch(function() {
       if (msg) { msg.textContent = 'Could not load stats. Check GAS_URL.'; msg.style.color = '#c0392b'; }
@@ -2164,10 +2189,12 @@ function renderGotRating(results, tbody) {
   }
   tbody.innerHTML = results.map(function(r, i) {
     var p = r.player;
+    var consent = CONSENT_DATA[String(p.fide_id||'').trim()] === 'Yes';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
       '<td style="font-weight:600">'+(p.cr_name||p.player_name)+'</td>' +
       '<td style="color:var(--text2)">'+(p.mobile_number||'—')+'</td>' +
+      '<td style="text-align:center">'+(consent?'<span style="color:#16a34a;font-weight:700;font-size:1rem">&#10003;</span>':'<span style="color:#ccc">—</span>')+'</td>' +
       '<td>'+statusLabel(p.status)+'</td>' +
       '<td>'+cell(r.std,r.gStd)+'</td>' +
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
@@ -2177,6 +2204,48 @@ function renderGotRating(results, tbody) {
       '</tr>';
   }).join('');
 }
+
+// ── Stats Player Popup ────────────────────────────────────────────────────────
+function showStatsPopup(title, players) {
+  var ov = document.getElementById('stats-popup-overlay');
+  document.getElementById('stats-popup-title').textContent = title;
+  var rows = players.map(function(p, i) {
+    return '<tr style="border-bottom:1px solid var(--border)">' +
+      '<td style="padding:7px 10px;font-size:0.79rem;color:var(--text2)">'+(i+1)+'</td>' +
+      '<td style="padding:7px 10px;font-weight:600">'+(p.cr_name||p.player_name||'—')+'</td>' +
+      '<td style="padding:7px 10px;color:var(--text2)">'+(p.mobile_number||'—')+'</td>' +
+      '<td style="padding:7px 10px;color:var(--text2)">'+(p.fide_id||'—')+'</td>' +
+      '<td style="padding:7px 10px">'+(p.subscription_start_date||'—')+'</td>' +
+      '<td style="padding:7px 10px">'+(p.subscription_end_date||'—')+'</td>' +
+      '<td style="padding:7px 10px;text-align:center">'+(p._std||'—')+'</td>' +
+      '<td style="padding:7px 10px;text-align:center">'+(p._rap||'—')+'</td>' +
+      '<td style="padding:7px 10px;text-align:center">'+(p._bli||'—')+'</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('stats-popup-body').innerHTML =
+    '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:0.82rem">' +
+    '<thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border)">' +
+    '<th style="padding:7px 10px">#</th><th style="padding:7px 10px;text-align:left">Name</th>' +
+    '<th style="padding:7px 10px;text-align:left">Mobile</th><th style="padding:7px 10px;text-align:left">FIDE ID</th>' +
+    '<th style="padding:7px 10px">Sub Start</th><th style="padding:7px 10px">Sub End</th>' +
+    '<th style="padding:7px 10px">Classical</th><th style="padding:7px 10px">Rapid</th><th style="padding:7px 10px">Blitz</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  ov.classList.add('open');
+}
+function closeStatsPopup() {
+  document.getElementById('stats-popup-overlay').classList.remove('open');
+}
 </script>
+
+<!-- Stats Player Popup -->
+<div class="modal-overlay" id="stats-popup-overlay" onclick="closeStatsPopup()">
+  <div class="modal" style="width:820px;max-width:98vw" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="stats-popup-title"></h3>
+      <button class="modal-close" onclick="closeStatsPopup()">&#10005;</button>
+    </div>
+    <div class="modal-body" id="stats-popup-body" style="padding:14px 18px;max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
 </body>
 </html>
