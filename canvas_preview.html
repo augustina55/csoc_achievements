@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <title>Canvas Download Preview</title>
 <style>
+@font-face { font-family:'ThunderLC'; src:url('Thunder-LC.otf') format('opentype'); font-weight:normal; }
+@font-face { font-family:'ThunderLC'; src:url('Thunder-BoldLC.otf') format('opentype'); font-weight:bold; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { background:#d8cfc3; display:flex; justify-content:center; align-items:flex-start; padding:40px; gap:40px; font-family:Arial,sans-serif; flex-wrap:wrap; }
 h2 { width:100%; text-align:center; margin-bottom:20px; color:#333; font-size:18px; }
@@ -28,6 +30,16 @@ canvas { box-shadow:0 8px 32px rgba(0,0,0,.25); display:block; }
 </div>
 
 <script>
+var thunderLoaded = false;
+var pendingPosters = [];
+var f1 = new FontFace('ThunderLC', "url('Thunder-LC.otf')");
+var f2 = new FontFace('ThunderLC', "url('Thunder-BoldLC.otf')", {weight:'bold'});
+Promise.all([f1.load(), f2.load()]).then(function(fonts){
+  fonts.forEach(function(f){ document.fonts.add(f); });
+  thunderLoaded = true;
+  pendingPosters.forEach(function(fn){ fn(); });
+}).catch(function(){ thunderLoaded = true; pendingPosters.forEach(function(fn){ fn(); }); });
+
 function wT(c,t,x,y,mw,lh){var ws=t.split(" "),ln="";for(var i=0;i<ws.length;i++){var ts=ln?ln+" "+ws[i]:ws[i];if(c.measureText(ts).width>mw&&ln){c.fillText(ln,x,y);ln=ws[i];y+=lh;}else ln=ts;}if(ln)c.fillText(ln,x,y);return y;}
 
 function drawPoster(cv, cfg) {
@@ -46,10 +58,13 @@ function drawPoster(cv, cfg) {
   var ctx = cv.getContext("2d");
   var W=540, H=700;
 
-  var medalImg = new Image();
-  medalImg.onload = function() { render(medalImg); };
-  medalImg.onerror = function() { render(null); };
-  medalImg.src = medalSrc;
+  function startRender() {
+    var medalImg = new Image();
+    medalImg.onload = function() { render(medalImg); };
+    medalImg.onerror = function() { render(null); };
+    medalImg.src = medalSrc;
+  }
+  if (thunderLoaded) { startRender(); } else { pendingPosters.push(startRender); }
 
   function render(mdImg) {
 
@@ -63,7 +78,7 @@ function drawPoster(cv, cfg) {
   if(mdImg) ctx.drawImage(mdImg,-40,-1,140,220);
 
   // Strip
-  var sx=50,sy=55,sw2=190,sh=590,sr=65;
+  var sx=50,sy=55,sw2=190,sh=560,sr=65;
   ctx.beginPath();ctx.moveTo(sx+sr,sy);ctx.lineTo(sx+sw2,sy);ctx.lineTo(sx+sw2,sy+sh);ctx.lineTo(sx+sr,sy+sh);ctx.quadraticCurveTo(sx,sy+sh,sx,sy+sh-sr);ctx.lineTo(sx,sy+sr);ctx.quadraticCurveTo(sx,sy,sx+sr,sy);ctx.closePath();ctx.fillStyle=ST;ctx.fill();
 
   // Strip text
@@ -74,9 +89,15 @@ function drawPoster(cv, cfg) {
     var c1=sx+75, c2=sx+155;
     ctx.strokeStyle="rgba(255,255,255,0.9)";ctx.textAlign="center";ctx.textBaseline="middle";
     ctx.font="900 "+fz1+"px Arial,sans-serif";ctx.lineWidth=4;
-    for(var i=0;i<s1.length;i++){ctx.save();ctx.translate(c1,sy+18+fz1/2+i*step1);ctx.rotate(-Math.PI/2);ctx.strokeText(s1[i],0,0);ctx.restore();}
+    var sp1={R:58,A:58,T:58,I:30,N:58,G:58};
+    var sp2G={G:60,A:60,I:30,N:60,E:60,D:60};
+    var sp2A={A:56,C:56,H:56,I:30,E:56,V:56,D:56};
+    var sp2=SL==="RATING ACHIEVED"?sp2A:sp2G;
+    var acc1=0;
+    for(var i=0;i<s1.length;i++){var st1=sp1[s1[i]]||step1;ctx.save();ctx.translate(c1,sy+18+fz1/2+acc1);ctx.rotate(-Math.PI/2);ctx.strokeText(s1[i],0,0);ctx.restore();acc1+=st1;}
     ctx.font="900 "+fz2+"px Arial,sans-serif";
-    for(var j=0;j<s2.length;j++){ctx.save();ctx.translate(c2,sy+18+fz2/2+j*step2);ctx.rotate(-Math.PI/2);ctx.strokeText(s2[j],0,0);ctx.restore();}
+    var acc2=0;
+    for(var j=0;j<s2.length;j++){var st2=sp2[s2[j]]||step2;ctx.save();ctx.translate(c2,sy+18+fz2/2+acc2);ctx.rotate(-Math.PI/2);ctx.strokeText(s2[j],0,0);ctx.restore();acc2+=st2;}
   } else {
     var chs=["P","M","A","H","C"];
     ctx.font="900 105px Arial,sans-serif";ctx.strokeStyle="#fff";ctx.lineWidth=5;ctx.textAlign="center";ctx.textBaseline="middle";
@@ -84,7 +105,7 @@ function drawPoster(cv, cfg) {
   }
 
   // White grid panel
-  var px=238,py=55,pw=302,ph=590;
+  var px=238,py=55,pw=302,ph=560;
   ctx.save();ctx.shadowColor="rgba(0,0,0,0.13)";ctx.shadowBlur=16;ctx.shadowOffsetX=-5;ctx.shadowOffsetY=4;ctx.fillStyle="#fff";ctx.fillRect(px,py,pw,ph);ctx.restore();
   ctx.strokeStyle="#c0c0c0";ctx.lineWidth=1;ctx.strokeRect(px,py,pw,ph);
 
@@ -93,7 +114,7 @@ function drawPoster(cv, cfg) {
   var nmLines = [nameParts[0].toUpperCase()];
   if(nameParts.length>1) nmLines.push(nameParts.slice(1).join(" ").toUpperCase());
   ctx.fillStyle="#2c3e50";ctx.font="900 30px Georgia,serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";
-  var nY=py+110+8+36;
+  var nY=py+120+8+36;
   ctx.fillText(nmLines[0]||"",px+14,nY);
   if(nmLines[1]){nY+=36;ctx.fillText(nmLines[1],px+14,nY);}
 
@@ -136,13 +157,13 @@ function drawPoster(cv, cfg) {
   ctx.fillStyle=ST;ctx.globalAlpha=0.45;ctx.fillRect(px+14,cY,pw-28,2);ctx.globalAlpha=1;cY+=2;
 
   // Proud line
-  var plY=cY+20,plX=px+10,plW=pw-20,plH=36,plR=18;
+  var plY=cY+20,plX=px+10,plW=pw-20,plH=36,plR=8;
   ctx.save();ctx.strokeStyle="#e53935";ctx.lineWidth=1.5;ctx.beginPath();
   ctx.moveTo(plX+plR,plY);ctx.lineTo(plX+plW-plR,plY);ctx.quadraticCurveTo(plX+plW,plY,plX+plW,plY+plR);
   ctx.lineTo(plX+plW,plY+plH-plR);ctx.quadraticCurveTo(plX+plW,plY+plH,plX+plW-plR,plY+plH);
   ctx.lineTo(plX+plR,plY+plH);ctx.quadraticCurveTo(plX,plY+plH,plX,plY+plH-plR);
   ctx.lineTo(plX,plY+plR);ctx.quadraticCurveTo(plX,plY,plX+plR,plY);ctx.closePath();ctx.stroke();ctx.restore();
-  ctx.font="800 8.5px Arial,sans-serif";ctx.textBaseline="middle";ctx.textAlign="left";
+  ctx.font="bold 10px ThunderLC,ThunderLC,ThunderLC";ctx.textBaseline="middle";ctx.textAlign="left";
   var pl1="PROUD ",pl2="CAISSA SCHOOL OF CHESS",pl3=" STUDENT",tX=plX+36,tY=plY+plH/2;
   var w1=ctx.measureText(pl1).width,w2=ctx.measureText(pl2).width;
   ctx.fillStyle="#0a1825";ctx.fillText(pl1,tX,tY);ctx.fillStyle="#b83030";ctx.fillText(pl2,tX+w1,tY);ctx.fillStyle="#0a1825";ctx.fillText(pl3,tX+w1+w2,tY);
@@ -157,12 +178,12 @@ function drawPoster(cv, cfg) {
   function dcs(src,cx,cy,cr){var i=new Image();i.onload=function(){ctx.save();ctx.beginPath();ctx.arc(cx,cy,cr,0,Math.PI*2);ctx.clip();ctx.drawImage(i,cx-cr,cy-cr,cr*2,cr*2);ctx.restore();od();};i.onerror=od;i.src=src;}
   function dib(src,dx,dy,dw,dh){var i=new Image();i.onload=function(){ctx.drawImage(i,dx,dy,dw,dh);od();};i.onerror=od;i.src=src;}
 
-  var chessY = plY + plH + 8;
+  var chessY = plY + plH + 25;
   var chessH = H - chessY + 80;
   var chessW = Math.round(chessH * (360/450));
-  di(chessSrc, W - chessW + 120, chessY, chessW, chessH);
-  di(logoSrc,px+(pw-180)/2,py+10,180,80);
-  dc(photoSrc,145,595,95);
+  di(chessSrc, W - chessW + 122, chessY, chessW, chessH);
+  di(logoSrc,px+(pw-180)/2,py+25,180,55);
+  dc(photoSrc,145,578,95);
   dcs(csocSrc,plX+18,plY+plH/2,13);
   if(SL==="RATING ACHIEVED" && badgeY!==null){
     dib(badgeSrc,px+9,badgeY-11,60,60);

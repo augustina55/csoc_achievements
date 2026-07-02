@@ -195,7 +195,7 @@
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Status</th><th>Tournament</th><th>Date</th>
+          <th>#</th><th>Player</th><th>Mobile</th><th>Status</th><th>Tournament</th><th>Date</th>
           <th>Rank</th><th>Rating ±</th><th></th>
         </tr></thead>
         <tbody id="achievers-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
@@ -218,7 +218,7 @@
     <div class="table-wrap" style="margin-top:6px">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Status</th><th>FIDE ID</th>
+          <th>#</th><th>Player</th><th>Mobile</th><th>Status</th>
           <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th><th></th>
         </tr></thead>
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
@@ -485,6 +485,8 @@ function renderAchieversTable(data) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
     return;
   }
+  var _pMobMap = {};
+  PLAYERS_DATA.forEach(function(p){ _pMobMap[String(p.player_name).toLowerCase()] = p.mobile_number || '—'; });
   tbody.innerHTML = rows.map(function(r, i) {
     var tn      = (r.tournament_name||'').length > 38 ? (r.tournament_name||'').slice(0,38)+'…' : (r.tournament_name||'');
     var rank    = Number(r.rank) || null;
@@ -494,9 +496,11 @@ function renderAchieversTable(data) {
     var typeLbl = type==='both' ? 'Top 9 + Rating' : (type==='rank' ? 'Top 9' : '+Rating');
     var typeCls = type==='rating' ? 'type-rating' : (type==='both' ? 'type-both' : 'type-rank');
     var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
+    var mobile  = _pMobMap[String(r.player_name||'').toLowerCase()] || '—';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
       '<td style="font-weight:600;white-space:nowrap">'+(r.player_name||'')+'</td>' +
+      '<td style="color:var(--text2)">'+mobile+'</td>' +
       '<td>'+statusLabel(r.status)+'</td>' +
       '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--text);text-decoration:none" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td style="white-space:nowrap;color:var(--text2)">'+fmtDate(r.date||'')+'</td>' +
@@ -2163,8 +2167,8 @@ function renderGotRating(results, tbody) {
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
       '<td style="font-weight:600">'+(p.cr_name||p.player_name)+'</td>' +
+      '<td style="color:var(--text2)">'+(p.mobile_number||'—')+'</td>' +
       '<td>'+statusLabel(p.status)+'</td>' +
-      '<td style="color:var(--text2)">'+(p.fide_id||'—')+'</td>' +
       '<td>'+cell(r.std,r.gStd)+'</td>' +
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
       '<td>'+cell(r.bli,r.gBli)+'</td>' +
