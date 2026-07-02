@@ -195,7 +195,7 @@
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th><th>Tournament</th><th>Date</th>
+          <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th><th>Tournament</th>
           <th>Rank</th><th>Rating ±</th><th></th>
         </tr></thead>
         <tbody id="achievers-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
@@ -218,8 +218,11 @@
     <div class="table-wrap" style="margin-top:6px">
       <table>
         <thead><tr>
-          <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th>
-          <th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th><th></th>
+          <th rowspan="2">#</th><th rowspan="2">Player</th><th rowspan="2">Mobile</th><th rowspan="2">Consent</th><th rowspan="2">Status</th>
+          <th colspan="3" style="text-align:center;background:#d1fae5;color:#065f46;letter-spacing:.5px">ACTIVE</th>
+          <th rowspan="2">Period</th><th rowspan="2"></th>
+        </tr><tr>
+          <th>Classical</th><th>Rapid</th><th>Blitz</th>
         </tr></thead>
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
       </table>
@@ -498,15 +501,17 @@ function renderAchieversTable(data) {
     var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
     var mobile  = _pMobMap[String(r.player_name||'').toLowerCase()] || '—';
     var _pObj   = PLAYERS_DATA.find(function(p){ return p.player_name.toLowerCase()===String(r.player_name||'').toLowerCase(); });
-    var consent = _pObj && CONSENT_DATA[String(_pObj.fide_id||'').trim()] === 'Yes';
+    var fideId  = _pObj ? String(_pObj.fide_id||'').trim() : '';
+    var consent = fideId && CONSENT_DATA[fideId] === 'Yes';
+    var pName   = r.player_name||'';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
-      '<td style="font-weight:600;white-space:nowrap">'+(r.player_name||'')+'</td>' +
+      '<td style="font-weight:600;white-space:nowrap">'+pName+'</td>' +
       '<td style="color:var(--text2)">'+mobile+'</td>' +
-      '<td style="text-align:center">'+(consent?'<span style="color:#16a34a;font-weight:700;font-size:1rem">&#10003;</span>':'<span style="color:#ccc">—</span>')+'</td>' +
+      '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+fideId+'\',\''+pName.replace(/'/g,"\\'")+'\',' +
+        '\''+mobile+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#16a34a"></td>' +
       '<td>'+statusLabel(r.status)+'</td>' +
-      '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--text);text-decoration:none" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
-      '<td style="white-space:nowrap;color:var(--text2)">'+fmtDate(r.date||'')+'</td>' +
+      '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td>'+(rank ? rankChip(rank) : '<span class="na">—</span>')+'</td>' +
       '<td>'+ratingChange(rc)+'</td>' +
       '<td><button class="btn-poster" onclick="openAchPoster('+i+')">🖼 Poster</button></td>' +
@@ -1006,8 +1011,6 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
   return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><title>Poster</title><style>"+css+"</style></head>"
     +"<body>"
     +"<div class=\"toolbar\">"
-    +"  <label>Name</label><input class=\"t-name\" id=\"e-name\" value=\""+escHtml(name)+"\" oninput=\"updName(this.value)\">"
-    +"  <label>Result</label><input class=\"t-result\" id=\"e-result\" value=\""+escHtml(posText)+"\" oninput=\"updResult(this.value)\">"
     +(tournamentName!==""?"  <label>Tournament</label><input class=\"t-tourn\" id=\"e-tourn\" value=\""+escHtml(tournamentName)+"\" oninput=\"updTourn(this.value)\">":"")
     +"  <button class=\"dl-btn\" onclick=\"dlPNG()\">&#11015; Download PNG</button>"
     +"</div>"
@@ -1768,6 +1771,15 @@ function _flushPlayerCallbacks() {
   cbs.forEach(function(fn){ fn(); });
 }
 
+// ── Consent save ─────────────────────────────────────────────────────────────
+function saveConsent(fideId, name, mobile, checked) {
+  if (!fideId || !GAS_URL) return;
+  var val = checked ? 'Yes' : 'No';
+  CONSENT_DATA[fideId] = val;
+  gasPost('write_consent', { fide_id: fideId, name: name, mobile: mobile, consent: val })
+    .catch(function(){});
+}
+
 // ── Consent data (Consent sheet: Name, Mobile, FIDE ID, Consent) ─────────────
 var CONSENT_DATA = {}; // fide_id → 'Yes'|'No'
 function loadConsent() {
@@ -2189,12 +2201,16 @@ function renderGotRating(results, tbody) {
   }
   tbody.innerHTML = results.map(function(r, i) {
     var p = r.player;
-    var consent = CONSENT_DATA[String(p.fide_id||'').trim()] === 'Yes';
+    var gFideId = String(p.fide_id||'').trim();
+    var consent = gFideId && CONSENT_DATA[gFideId] === 'Yes';
+    var gName   = p.cr_name||p.player_name||'';
+    var gMobile = p.mobile_number||'—';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
-      '<td style="font-weight:600">'+(p.cr_name||p.player_name)+'</td>' +
-      '<td style="color:var(--text2)">'+(p.mobile_number||'—')+'</td>' +
-      '<td style="text-align:center">'+(consent?'<span style="color:#16a34a;font-weight:700;font-size:1rem">&#10003;</span>':'<span style="color:#ccc">—</span>')+'</td>' +
+      '<td style="font-weight:600">'+gName+'</td>' +
+      '<td style="color:var(--text2)">'+gMobile+'</td>' +
+      '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+gFideId+'\',\''+gName.replace(/'/g,"\\'")+'\',' +
+        '\''+gMobile+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#16a34a"></td>' +
       '<td>'+statusLabel(p.status)+'</td>' +
       '<td>'+cell(r.std,r.gStd)+'</td>' +
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
