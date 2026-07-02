@@ -106,8 +106,11 @@ function drawPoster(cv, cfg) {
   if(SL==="RATING ACHIEVED"){
     cY+=10;
     badgeY = cY;
+    var bx=px+42,bw=pw-56,bh=42,br=8;
+    ctx.fillStyle="#dbeafe";
+    ctx.beginPath();ctx.moveTo(bx+br,cY);ctx.lineTo(bx+bw-br,cY);ctx.quadraticCurveTo(bx+bw,cY,bx+bw,cY+br);ctx.lineTo(bx+bw,cY+bh-br);ctx.quadraticCurveTo(bx+bw,cY+bh,bx+bw-br,cY+bh);ctx.lineTo(bx+br,cY+bh);ctx.quadraticCurveTo(bx,cY+bh,bx,cY+bh-br);ctx.lineTo(bx,cY+br);ctx.quadraticCurveTo(bx,cY,bx+br,cY);ctx.closePath();ctx.fill();
     ctx.fillStyle="#1565C0";ctx.font="900 15px Arial,sans-serif";ctx.textAlign="left";ctx.textBaseline="alphabetic";
-    ctx.fillText("ACHIEVED INTERNATIONAL",px+62,cY+18);ctx.fillText("FIDE RATING",px+62,cY+18+19);
+    ctx.fillText("ACHIEVED INTERNATIONAL",px+62,cY+16);ctx.fillText("FIDE RATING",px+62,cY+16+20);
     cY+=60;
     if(posText){ctx.fillStyle="#3a4a5c";ctx.font="700 18px Arial,sans-serif";ctx.fillText(posText,px+14,cY+18);cY+=28;}
     cY+=20;

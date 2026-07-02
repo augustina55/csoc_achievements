@@ -858,9 +858,9 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     +".points-lbl { font-size:13px; font-weight:900; color:#1a2a3a; line-height:1.5; }"
     +".r-dot-div { margin-top:10px; border-top:1.5px dashed #b0c8d4; flex-shrink:0; }"
     +".div2 { margin-top:20px; height:2px; background:"+strip+"; opacity:0.45; flex-shrink:0; }"
-    +".badge-row { margin-top:10px; display:flex; align-items:flex-start; gap:0; flex-shrink:0; }"
+    +".badge-row { margin-top:10px; display:flex; align-items:center; gap:0; flex-shrink:0; background:#dbeafe; border-radius:8px; padding:6px 20px 6px 0; }"
     +".badge-icon { width:50px; height:50px; object-fit:contain; object-position:left center; flex-shrink:0; margin-left:-5px; margin-right:-12px; }"
-    +".badge-txt { font-size:15px; font-weight:600; color:#1565C0; line-height:1.25; font-family:\"Arial Black\",Arial,sans-serif; letter-spacing:0.5px; white-space:nowrap; }"
+    +".badge-txt { font-size:15px; font-weight:600; color:#1565C0; line-height:1.25; font-family:\"Arial Black\",Arial,sans-serif; letter-spacing:0.5px; white-space:nowrap; padding-left:4px; }"
     +".proud-line { margin-top:15px; display:flex; align-items:center; gap:8px; flex-shrink:0;"
     +"  border:1.5px solid #e53935; border-radius:20px; padding:5px 8px; }"
     +".csoc-circle { width:26px; height:26px; border-radius:50%; object-fit:cover; flex-shrink:0; }"
@@ -915,7 +915,8 @@ function buildPosterHtml(name, posText, tournamentName, photoUri, ratingPoints, 
     "    if(SL==='RATING ACHIEVED'){",
     "      cY+=10;badgeY=cY;",
     "      ctx.fillStyle='#1565C0';ctx.font='900 15px Arial,sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';",
-    "      ctx.fillText('ACHIEVED INTERNATIONAL',px+62,cY+18);ctx.fillText('FIDE RATING',px+62,cY+18+19);",
+    "      var bx=px+42,bw=pw-56,bh=42,br=8;ctx.fillStyle='#dbeafe';ctx.beginPath();ctx.moveTo(bx+br,cY);ctx.lineTo(bx+bw-br,cY);ctx.quadraticCurveTo(bx+bw,cY,bx+bw,cY+br);ctx.lineTo(bx+bw,cY+bh-br);ctx.quadraticCurveTo(bx+bw,cY+bh,bx+bw-br,cY+bh);ctx.lineTo(bx+br,cY+bh);ctx.quadraticCurveTo(bx,cY+bh,bx,cY+bh-br);ctx.lineTo(bx,cY+br);ctx.quadraticCurveTo(bx,cY,bx+br,cY);ctx.closePath();ctx.fill();",
+    "      ctx.fillStyle='#1565C0';ctx.font='900 15px Arial,sans-serif';ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.fillText('ACHIEVED INTERNATIONAL',px+62,cY+16);ctx.fillText('FIDE RATING',px+62,cY+16+20);",
     "      cY+=60;",
     "      var pe=document.querySelector('.ach-pos');if(pe){ctx.fillStyle='#3a4a5c';ctx.font='700 18px Arial,sans-serif';ctx.fillText(pe.textContent.trim(),px+14,cY+18);cY+=28;}",
     "      cY+=20;",
