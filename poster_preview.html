@@ -106,13 +106,16 @@ h2 { width:100%; text-align:center; margin-bottom:20px; color:#333; font-size:18
 
 .badge-row {
   margin-top:10px; display:flex; align-items:center; gap:0; flex-shrink:0;
-  background:#dbeafe; border-radius:8px; padding:6px 20px 6px 0;
 }
 .badge-icon { width:50px; height:50px; object-fit:contain; object-position:left center; flex-shrink:0; margin-left:-5px; margin-right:-12px; }
 .badge-txt {
-  font-size:15px; font-weight:600; color:#1565C0; line-height:1.25;
+  font-size:15px; font-weight:600; color:#1565C0; line-height:1.4;
   font-family:"Arial Black",Arial,sans-serif; letter-spacing:0.5px;
   white-space:nowrap; padding-left:4px;
+}
+.badge-txt .fide-pill {
+  display:block; background:#1565C0; color:#fff; border-radius:6px;
+  padding:2px 20px; margin-top:2px;
 }
 
 /* Proud line */
@@ -214,7 +217,7 @@ h2 { width:100%; text-align:center; margin-bottom:20px; color:#333; font-size:18
       <div class="div1" style="background:#1565C0;"></div>
       <div class="badge-row">
         <img src="achieved badge icon.png" class="badge-icon" alt="">
-        <span class="badge-txt">ACHIEVED INTERNATIONAL<br>FIDE RATING</span>
+        <span class="badge-txt">ACHIEVED INTERNATIONAL<span class="fide-pill">FIDE RATING</span></span>
       </div>
       <div class="ach-pos">Classical Rating — July 2026</div>
       <div class="div2" style="background:#1565C0;"></div>
