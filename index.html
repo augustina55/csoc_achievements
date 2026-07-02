@@ -2027,7 +2027,7 @@ function saveGotRatingToSheet(results, month) {
       var rows = newResults.map(function(r) {
         var p = r.player;
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
-                p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
+                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0];
       });
       gasPost('write_got_rating', {rows: rows})
         .then(function(d){
@@ -2041,7 +2041,7 @@ function saveGotRatingToSheet(results, month) {
       var rows = results.map(function(r) {
         var p = r.player;
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
-                p.subscription_end_date||'', month, r.std||0, r.rap||0, r.bli||0];
+                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0];
       });
       gasPost('write_got_rating', {rows: rows}).catch(function(){});
     });
@@ -2152,13 +2152,16 @@ function loadRatingStats() {
         + '<thead>'
         + '<tr style="background:var(--surface2)">'
         + '<th rowspan="2" style="'+th+';text-align:left;min-width:90px">Month</th>'
-        + '<th colspan="3" style="'+th+';background:#d1fae5;color:#065f46">Active</th>'
-        + '<th colspan="3" style="'+th+';background:#fee2e2;color:#991b1b">Non-Active</th>'
+        + '<th rowspan="2" style="'+th+';background:#e0e7ff;color:#3730a3">Total</th>'
+        + '<th colspan="4" style="'+th+';background:#d1fae5;color:#065f46">Active</th>'
+        + '<th colspan="4" style="'+th+';background:#fee2e2;color:#991b1b">Non-Active</th>'
         + '</tr>'
         + '<tr style="background:var(--surface2)">'
+        + '<th style="'+th+';background:#d1fae5">Total</th>'
         + '<th style="'+th+';background:#d1fae5">Classical</th>'
         + '<th style="'+th+';background:#d1fae5">Rapid</th>'
         + '<th style="'+th+';background:#d1fae5">Blitz</th>'
+        + '<th style="'+th+';background:#fee2e2">Total</th>'
         + '<th style="'+th+';background:#fee2e2">Classical</th>'
         + '<th style="'+th+';background:#fee2e2">Rapid</th>'
         + '<th style="'+th+';background:#fee2e2">Blitz</th>'
@@ -2173,20 +2176,27 @@ function loadRatingStats() {
         var nStd = np.filter(function(x){return x._std>0;});
         var nRap = np.filter(function(x){return x._rap>0;});
         var nBli = np.filter(function(x){return x._bli>0;});
-        function cc(list, label) {
-          return list.length ? '<td style="'+cs+';background:#f0fdf4;color:#059669;font-weight:700" onclick="showStatsPopup(\''+p+' — '+label+'\',_statsPopupData[\''+p+'\']._cache[\''+label+'\'])">'+list.length+'</td>' : '<td style="'+cs+'">—</td>';
-        }
-        function cn(list, label) {
-          return list.length ? '<td style="'+cs+';background:#fff5f5;color:#dc2626;font-weight:700" onclick="showStatsPopup(\''+p+' — '+label+'\',_statsPopupData[\''+p+'\']._cache[\''+label+'\'])">'+list.length+'</td>' : '<td style="'+cs+'">—</td>';
-        }
         monthMap[p]._cache = {
-          'Active Classical': aStd, 'Active Rapid': aRap, 'Active Blitz': aBli,
-          'Non-Active Classical': nStd, 'Non-Active Rapid': nRap, 'Non-Active Blitz': nBli
+          'All': ap.concat(np),
+          'Active': ap, 'Active Classical': aStd, 'Active Rapid': aRap, 'Active Blitz': aBli,
+          'Non-Active': np, 'Non-Active Classical': nStd, 'Non-Active Rapid': nRap, 'Non-Active Blitz': nBli
         };
+        function ct(list, label, bg, fg) {
+          return list.length
+            ? '<td style="'+cs+';background:'+bg+';color:'+fg+';font-weight:700" onclick="showStatsPopup(\''+p+' — '+label+'\',_statsPopupData[\''+p+'\']._cache[\''+label+'\'])">'+list.length+'</td>'
+            : '<td style="'+cs+'">—</td>';
+        }
         html += '<tr style="border-bottom:1px solid var(--border)">'
           + '<td style="padding:8px 14px;font-weight:600;border:1px solid var(--border)">' + p + '</td>'
-          + cc(aStd,'Active Classical') + cc(aRap,'Active Rapid') + cc(aBli,'Active Blitz')
-          + cn(nStd,'Non-Active Classical') + cn(nRap,'Non-Active Rapid') + cn(nBli,'Non-Active Blitz')
+          + ct(ap.concat(np),'All','#ede9fe','#5b21b6')
+          + ct(ap,'Active','#f0fdf4','#059669')
+          + ct(aStd,'Active Classical','#f0fdf4','#059669')
+          + ct(aRap,'Active Rapid','#f0fdf4','#059669')
+          + ct(aBli,'Active Blitz','#f0fdf4','#059669')
+          + ct(np,'Non-Active','#fff5f5','#dc2626')
+          + ct(nStd,'Non-Active Classical','#fff5f5','#dc2626')
+          + ct(nRap,'Non-Active Rapid','#fff5f5','#dc2626')
+          + ct(nBli,'Non-Active Blitz','#fff5f5','#dc2626')
           + '</tr>';
       });
 
