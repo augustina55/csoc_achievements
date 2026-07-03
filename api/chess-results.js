@@ -65,22 +65,19 @@ export default async function handler(req, res) {
     return rows;
   }
 
-  // Fetch the tournament page, find the player by FIDE ID, return their specific link
+  // Fetch the tournament page, find the player by FIDE ID, return their art=9 URL
+  // Logic mirrors tournament_link.js: snr = cells[0] (starting rank column)
   async function getPlayerPageLink(tournId, fideId) {
     try {
-      const url = `${CR_BASE}/tnr${tournId}.aspx?lan=1`;
-      const r = await rawReq(url);
+      const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1`);
       if (r.status !== 200) return null;
       const fideStr = String(fideId);
-      // Each player row has a link like: tnrXXX.aspx?lan=1&art=9&fed=IND&snr=12&SNode=S0
-      // Find the row containing this FIDE ID and extract any href with snr=
       for (const trm of r.text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
         if (!trm[1].includes(fideStr)) continue;
-        const linkMatch = trm[1].match(/href="(tnr\d+\.aspx[^"]*snr=[^"]+)"/i);
-        if (linkMatch) return linkMatch[1];
-        // Fallback: any tnr link in this row
-        const anyLink = trm[1].match(/href="(tnr\d+\.aspx[^"]+)"/i);
-        if (anyLink) return anyLink[1];
+        const cells = [...trm[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+          .map(m => m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim());
+        const snr = Number(cells[0]);
+        if (snr) return `tnr${tournId}.aspx?lan=1&art=9&snr=${snr}&SNode=S0`;
       }
     } catch (_) {}
     return null;
