@@ -213,6 +213,7 @@
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
         <select id="got-month-sel" onchange="loadGotRating()" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
         <button class="filter-btn active" onclick="confirmFetchFromAPI()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
+        <button class="filter-btn" onclick="fetchAll2025()" style="padding:5px 14px;background:#f59e0b;color:#fff;border-color:#f59e0b">⬇ Fetch Jan–Dec 2025</button>
       </div>
     </div>
     <div id="got-rating-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Select a month and click Fetch.</div>
@@ -240,6 +241,25 @@
     </div>
     <div id="stats-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Loading…</div>
     <div id="stats-table-wrap" style="overflow-x:auto;margin-top:8px"></div>
+
+    <div style="margin-top:28px;border-top:1px solid var(--border);padding-top:18px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-weight:700;font-size:0.95rem;color:var(--text)">Got Rating Records</span>
+        <select id="stats-period-sel" style="border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:0.82rem;background:var(--surface);color:var(--text)" onchange="renderStatsDetail()">
+          <option value="">All Periods</option>
+        </select>
+        <button class="filter-btn" onclick="downloadStatsCSV()" style="padding:4px 14px;margin-left:auto">⬇ Download CSV</button>
+      </div>
+      <div id="stats-detail-msg" style="font-size:0.81rem;color:#888;margin-bottom:6px"></div>
+      <div class="table-wrap" style="margin-top:4px">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Player</th><th>Mobile</th><th>Classical</th><th>Rapid</th><th>Blitz</th><th>Period</th>
+          </tr></thead>
+          <tbody id="stats-detail-tbody"><tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -475,7 +495,8 @@ function renderPagination(containerId, page, total, onPage) {
       opts.push(y + '-' + MN[m]);
     }
   }
-  sel.innerHTML = opts.map(function(v){ return '<option value="'+v+'">'+v+'</option>'; }).join('');
+  sel.innerHTML = '<option value="All">All</option>' +
+    opts.map(function(v){ return '<option value="'+v+'">'+v+'</option>'; }).join('');
   sel.onchange = function(){ loadAchievementsFromSheet(); };
 })();
 
@@ -573,7 +594,10 @@ function loadAchievementsFromSheet() {
   if (!month) return;
   if (!GAS_URL) { setAchMsg('GAS_URL not configured.', '#c0392b'); return; }
   setAchMsg('Loading from sheet for ' + month + '…', '#888');
-  fetch(GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month))
+  var achUrl = month === 'All'
+    ? GAS_URL + '?action=read_achievements'
+    : GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month);
+  fetch(achUrl)
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (!d.ok) { setAchMsg('Sheet error: ' + (d.error||'unknown'), '#c0392b'); return; }
@@ -1626,7 +1650,7 @@ function switchTab(tab) {
   document.getElementById('panel-custom').classList.toggle('active', tab==='custom');
   if (tab === 'achievers') loadAchievementsFromSheet();
   if (tab === 'got') loadGotRating();
-  if (tab === 'stats') loadRatingStats();
+  if (tab === 'stats') { loadRatingStats(); loadStatsDetail(); }
   if (tab === 'custom') { setTimeout(cpUpdate, 50); }
 }
 
@@ -1837,10 +1861,9 @@ loadAchievementsFromSheet();
   var now = new Date();
   var curYear = now.getFullYear(), curMon = now.getMonth(); // 0-based
   var opts = [];
-  for (var y = curYear; y >= 2026; y--) {
+  for (var y = curYear; y >= 2025; y--) {
     var mEnd = (y === curYear) ? curMon : 11;
-    var mStart = (y === 2026) ? 0 : 0;
-    for (var m = mEnd; m >= mStart; m--) {
+    for (var m = mEnd; m >= 0; m--) {
       opts.push(y + '-' + MN[m]);
     }
   }
@@ -1874,6 +1897,87 @@ function confirmFetchFromAPI() {
     return;
   }
   fetchGotRating();
+}
+
+// ── Fetch all 12 months of 2025 sequentially ─────────────────────────────────
+function fetchAll2025() {
+  if (!confirm('Fetch FIDE rating data for ALL 12 months of 2025 (Jan–Dec)?\n\nThis will call the FIDE API for each month in sequence.\nClick OK to proceed.')) return;
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var months = MN.map(function(m){ return '2025-' + m; });
+  var sel = document.getElementById('got-month-sel');
+  var idx = 0;
+  setMsg('Fetching 2025: starting…', '#888');
+
+  function next() {
+    if (idx >= months.length) {
+      setMsg('✓ All 2025 months fetched and saved to sheet', '#1e7a3e');
+      return;
+    }
+    var m = months[idx++];
+    sel.value = m;
+    setMsg('Fetching ' + m + ' (' + idx + '/12)…', '#888');
+    loadPlayersFromGAS(function() {
+      fetchGotRatingForMonth(m, function() { next(); });
+    });
+  }
+  next();
+}
+
+function fetchGotRatingForMonth(month, done) {
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var p = month.split('-');
+  var year = parseInt(p[0]), monIdx = MN.indexOf(p[1]);
+  var firstOfMonth = new Date(year, monIdx, 1);
+  var srcPlayers = PLAYERS_DATA.filter(function(p) {
+    if (!String(p.fide_id).trim()) return false;
+    if (!p.subscription_start_date || !p.subscription_end_date) return false;
+    var start = parseDate(p.subscription_start_date);
+    var end   = parseDate(p.subscription_end_date);
+    if (!start || !end) return false;
+    return start <= firstOfMonth && firstOfMonth <= end;
+  });
+  if (srcPlayers.length === 0) { if (done) done(); return; }
+
+  var total = srcPlayers.length, completed = 0;
+  var newRatings = [];
+
+  srcPlayers.forEach(function(player) {
+    fetch(GAS_URL + '?action=fide_history&fide_id=' + encodeURIComponent(player.fide_id))
+      .then(function(r){ return r.json(); })
+      .then(function(resp) {
+        if (resp.ok && resp.data) {
+          var history = resp.data;
+          history.sort(function(a,b){ return new Date(a.period+'-01') - new Date(b.period+'-01'); });
+          var cur = history.find(function(h){ return normalizePeriod(h.period) === month; });
+          var idx2 = history.findIndex(function(h){ return normalizePeriod(h.period) === month; });
+          var prev = idx2 > 0 ? history[idx2 - 1] : {};
+          if (cur) {
+            var std = cur.classical_rating || 0, rap = cur.rapid_rating || 0, bli = cur.blitz_rating || 0;
+            var gStd = !(prev.classical_rating) && std > 0;
+            var gRap = !(prev.rapid_rating) && rap > 0;
+            var gBli = !(prev.blitz_rating) && bli > 0;
+            if (gStd || gRap || gBli) {
+              newRatings.push({ player: player, std: std, rap: rap, bli: bli, gStd: gStd, gRap: gRap, gBli: gBli });
+            }
+          }
+        }
+      })
+      .catch(function(){})
+      .finally(function(){
+        completed++;
+        if (completed === total) {
+          if (newRatings.length > 0) {
+            var rows = newRatings.map(function(r) {
+              var p2 = r.player;
+              return [p2.player_name, p2.fide_id, statusLabel(p2.status),
+                      p2.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0, p2.mobile_number||''];
+            });
+            gasPost('write_got_rating', {rows: rows}).catch(function(){});
+          }
+          if (done) done();
+        }
+      });
+  });
 }
 
 // ── Compute player status based on subscription_end_date vs selected month ────
@@ -2230,6 +2334,88 @@ function loadRatingStats() {
       if (msg) { msg.textContent = 'Could not load stats. Check GAS_URL.'; msg.style.color = '#c0392b'; }
     });
   }); // end loadPlayersFromGAS callback
+}
+
+// ── Rating Stats Detail Table ─────────────────────────────────────────────────
+var _allGotRatingRows = [];
+
+function loadStatsDetail() {
+  if (!GAS_URL) return;
+  fetch(GAS_URL + '?action=read_all_got_rating')
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (!d.ok) return;
+      _allGotRatingRows = d.rows || [];
+      // Populate period selector
+      var periods = [];
+      _allGotRatingRows.forEach(function(row) {
+        var p = normalizePeriod(row[4]);
+        if (p && periods.indexOf(p) < 0) periods.push(p);
+      });
+      periods.sort(function(a, b) {
+        var ay = parseInt(a), by = parseInt(b);
+        if (ay !== by) return by - ay;
+        var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        return mn.indexOf(b.split('-')[1]) - mn.indexOf(a.split('-')[1]);
+      });
+      var sel = document.getElementById('stats-period-sel');
+      if (sel) {
+        sel.innerHTML = '<option value="">All Periods</option>' +
+          periods.map(function(p){ return '<option value="'+p+'">'+p+'</option>'; }).join('');
+      }
+      renderStatsDetail();
+    }).catch(function(){});
+}
+
+function renderStatsDetail() {
+  var sel = document.getElementById('stats-period-sel');
+  var period = sel ? sel.value : '';
+  var tbody = document.getElementById('stats-detail-tbody');
+  var msg = document.getElementById('stats-detail-msg');
+  if (!tbody) return;
+  var rows = _allGotRatingRows.filter(function(row) {
+    return !period || normalizePeriod(row[4]) === period;
+  });
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">No records.</td></tr>';
+    if (msg) msg.textContent = '';
+    return;
+  }
+  if (msg) msg.textContent = rows.length + ' records';
+  tbody.innerHTML = rows.map(function(row, i) {
+    // Sheet cols: Name(0), FIDE ID(1), Status(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7), Mobile(8)
+    var name = row[0] || '—';
+    var mobile = row[8] || '—';
+    var cl = Number(row[5])||0, rap = Number(row[6])||0, bli = Number(row[7])||0;
+    var per = normalizePeriod(row[4]);
+    return '<tr>' +
+      '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
+      '<td style="font-weight:600">'+name+'</td>' +
+      '<td style="color:var(--text2)">'+mobile+'</td>' +
+      '<td style="text-align:center">'+(cl||'—')+'</td>' +
+      '<td style="text-align:center">'+(rap||'—')+'</td>' +
+      '<td style="text-align:center">'+(bli||'—')+'</td>' +
+      '<td style="color:var(--text2)">'+per+'</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function downloadStatsCSV() {
+  var sel = document.getElementById('stats-period-sel');
+  var period = sel ? sel.value : '';
+  var rows = _allGotRatingRows.filter(function(row) {
+    return !period || normalizePeriod(row[4]) === period;
+  });
+  var csv = 'Player Name,Mobile,Classical,Rapid,Blitz,Period\n' +
+    rows.map(function(row) {
+      var vals = [row[0]||'', row[8]||'', Number(row[5])||0, Number(row[6])||0, Number(row[7])||0, normalizePeriod(row[4])];
+      return vals.map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(',');
+    }).join('\n');
+  var blob = new Blob([csv], {type:'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'got_rating' + (period ? '_'+period : '') + '.csv';
+  a.click();
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
