@@ -485,20 +485,16 @@ function renderAchieversTable(data) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
     return;
   }
-  var _pMobMap = {};
-  PLAYERS_DATA.forEach(function(p){ _pMobMap[String(p.player_name).toLowerCase()] = p.mobile_number || '—'; });
   tbody.innerHTML = rows.map(function(r, i) {
     var tn      = (r.tournament_name||'').length > 38 ? (r.tournament_name||'').slice(0,38)+'…' : (r.tournament_name||'');
     var rank    = Number(r.rank) || null;
     var rc      = r.rating_change !== null && r.rating_change !== undefined && r.rating_change !== '' ? Number(r.rating_change) : null;
     var isRated = r.is_rated || r.rated === 'RATED';
     var type    = (rank && rank <= 9) ? ((rc && rc >= 30) ? 'both' : 'rank') : 'rating';
-    var typeLbl = type==='both' ? 'Top 9 + Rating' : (type==='rank' ? 'Top 9' : '+Rating');
     var typeCls = type==='rating' ? 'type-rating' : (type==='both' ? 'type-both' : 'type-rank');
     var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
-    var mobile  = _pMobMap[String(r.player_name||'').toLowerCase()] || '—';
-    var _pObj   = PLAYERS_DATA.find(function(p){ return p.player_name.toLowerCase()===String(r.player_name||'').toLowerCase(); });
-    var fideId  = _pObj ? String(_pObj.fide_id||'').trim() : '';
+    var fideId  = String(r.fide_id||'').trim();
+    var mobile  = r.mobile || '—';
     var consent = fideId && CONSENT_DATA[fideId] === 'Yes';
     var pName   = r.player_name||'';
     return '<tr>' +
@@ -561,16 +557,20 @@ function loadAchievementsFromSheet() {
         ACH_ROWS_LIVE = [];
         return;
       }
-      var playerMap = {};
-      PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
-      // Sheet cols: Name(0), FIDE ID(1), Tournament(2), Rank(3), Rating±(4), Rated(5), Date(6), Tournament Link(7)
+      // Sheet cols: Name(0), FIDE ID(1), Tournament(2), Rank(3), Rating±(4), Rated(5), Date(6), Tournament Link(7), Mobile(8)
       ACH_ROWS_LIVE = rows.map(function(row) {
-        var pd = playerMap[String(row[1])] || {};
         var rcVal = row[4];
+        // Prefer sheet mobile; fallback to PLAYERS_DATA if loaded
+        var mobile = row[8] || '';
+        if (!mobile && PLAYERS_DATA.length) {
+          var pd = PLAYERS_DATA.find(function(p){ return String(p.fide_id) === String(row[1]); });
+          if (pd) mobile = pd.mobile_number || '';
+        }
         return {
-          player_name: row[0] || pd.player_name || '',
+          player_name: row[0] || '',
           fide_id: row[1],
-          status: pd.status || 1,
+          status: 1,
+          mobile: mobile,
           tournament_name: row[2] || '',
           tournament_link: row[7] || null,
           rank: row[3] !== '' && row[3] !== null && row[3] !== undefined ? Number(row[3]) : null,
@@ -646,6 +646,7 @@ function fetchAchievementsFromAPI() {
                   player_name: t.player_name_cr || player.player_name,
                   fide_id: player.fide_id,
                   status: player.status,
+                  mobile: player.mobile_number || '',
                   tournament_name: t.tournament_name, tournament_link: t.tournament_link,
                   rank: t.rank, rating_change: t.rating_change, is_rated: t.is_rated,
                   date: t.date,
@@ -1973,15 +1974,18 @@ function loadGotFromSheet() {
         setMsg('No records found in sheet for ' + month + '. Use "Fetch from API" to load.', '#888');
         return;
       }
-      var playerMap = {};
-      PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
-      // Sheet columns: Name(0), FIDE ID(1), Status label(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7)
+      // Sheet columns: Name(0), FIDE ID(1), Status(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7), Mobile(8)
       var results = rows.map(function(row) {
-        var p = playerMap[String(row[1])] || { player_name:row[0], fide_id:row[1],
-          status:row[2], subscription_end_date:row[3] };
-        return { player: Object.assign({}, p, { status:row[2], subscription_end_date:row[3] }),
-          period:normalizePeriod(row[4]), std:Number(row[5])||0, rap:Number(row[6])||0, bli:Number(row[7])||0,
-          gStd:!!(Number(row[5])>0), gRap:!!(Number(row[6])>0), gBli:!!(Number(row[7])>0) };
+        var mobile = row[8] || '';
+        if (!mobile && PLAYERS_DATA.length) {
+          var pd = PLAYERS_DATA.find(function(p){ return String(p.fide_id) === String(row[1]); });
+          if (pd) mobile = pd.mobile_number || '';
+        }
+        var p = { player_name: row[0], fide_id: row[1], status: row[2],
+                  subscription_end_date: row[3], mobile_number: mobile };
+        return { player: p, period: normalizePeriod(row[4]),
+          std: Number(row[5])||0, rap: Number(row[6])||0, bli: Number(row[7])||0,
+          gStd: !!(Number(row[5])>0), gRap: !!(Number(row[6])>0), gBli: !!(Number(row[7])>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
       renderGotRating(results, document.getElementById('got-rating-tbody'));
@@ -2016,7 +2020,7 @@ function saveGotRatingToSheet(results, month) {
       var rows = newResults.map(function(r) {
         var p = r.player;
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
-                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0];
+                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0, p.mobile_number||''];
       });
       gasPost('write_got_rating', {rows: rows})
         .then(function(d){
@@ -2030,7 +2034,7 @@ function saveGotRatingToSheet(results, month) {
       var rows = results.map(function(r) {
         var p = r.player;
         return [p.cr_name||p.player_name, p.fide_id, statusLabel(p.status),
-                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0];
+                p.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0, p.mobile_number||''];
       });
       gasPost('write_got_rating', {rows: rows}).catch(function(){});
     });
@@ -2048,7 +2052,7 @@ function saveAchievementsToSheet(srcRows, month) {
   var allRows = dataRows.map(function(r) {
     return [r.player_name, r.fide_id, r.tournament_name||'',
             r.rank||'', r.rating_change!==null && r.rating_change!==undefined ? r.rating_change : '',
-            r.is_rated ? 'RATED' : '', r.date||'', r.tournament_link||''];
+            r.is_rated ? 'RATED' : '', r.date||'', r.tournament_link||'', r.mobile||''];
   });
   setAchMsg('Saving ' + allRows.length + ' rows to sheet…', '#888');
   gasPost('write_achievements', {rows: allRows})

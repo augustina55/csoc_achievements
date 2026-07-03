@@ -19,9 +19,9 @@ var EXPLORER_URL = 'https://explorer.circlechess.com/1171/';
 
 // ── Sheet headers ────────────────────────────────────────────────────────────
 var PLAYERS_HEADERS = ['Player Name','FIDE ID','Mobile','Subscription Start','Subscription End','Status','Updated At'];
-var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Subscription End','Period','Classical','Rapid','Blitz','Saved At'];
+var GOT_HEADERS     = ['Player Name','FIDE ID','Status','Subscription End','Period','Classical','Rapid','Blitz','Mobile','Saved At'];
 var STATUS_LABELS   = {1:'Active', 2:'Expired', 3:'Upcoming', 5:'Pause'};
-var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Tournament Link','Saved At'];
+var ACH_HEADERS     = ['Player Name','FIDE ID','Tournament','Rank','Rating ±','Rated','Date','Tournament Link','Mobile','Saved At'];
 var CONSENT_HEADERS = ['Player Name','Mobile','FIDE ID','Consent'];
 
 // ── doPost — handles write operations sent as JSON body ───────────────────────
