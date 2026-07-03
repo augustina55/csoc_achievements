@@ -526,7 +526,7 @@ function renderAchieversTable(data, page) {
     var pName   = r.player_name||'';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(globalIdx+1)+'</td>' +
-      '<td style="font-weight:600;white-space:nowrap">'+pName+'</td>' +
+      '<td style="font-weight:600;white-space:nowrap;cursor:pointer;color:var(--accent)" onclick="showPlayerInfo(\''+fideId+'\',\''+pName.replace(/'/g,"\\'")+'\',\''+mobile+'\')">'+pName+'</td>' +
       '<td style="color:var(--text2)">'+mobile+'</td>' +
       '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+fideId+'\',\''+pName.replace(/'/g,"\\'")+'\',' +
         '\''+mobile+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#16a34a"></td>' +
@@ -2267,7 +2267,7 @@ function renderGotRating(results, tbody) {
     var gMobile = p.mobile_number||'—';
     return '<tr>' +
       '<td style="color:var(--text2);font-size:0.79rem">'+(globalIdx+1)+'</td>' +
-      '<td style="font-weight:600">'+gName+'</td>' +
+      '<td style="font-weight:600;cursor:pointer;color:var(--accent)" onclick="showPlayerInfo(\''+gFideId+'\',\''+gName.replace(/'/g,"\\'")+'\',\''+gMobile+'\')">'+gName+'</td>' +
       '<td style="color:var(--text2)">'+gMobile+'</td>' +
       '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+gFideId+'\',\''+gName.replace(/'/g,"\\'")+'\',' +
         '\''+gMobile+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#16a34a"></td>' +
@@ -2312,6 +2312,28 @@ function showStatsPopup(title, players) {
 function closeStatsPopup() {
   document.getElementById('stats-popup-overlay').classList.remove('open');
 }
+
+function showPlayerInfo(fideId, name, mobile) {
+  var pd = PLAYERS_DATA.find(function(p){ return String(p.fide_id) === String(fideId); }) || {};
+  var row = [
+    ['Player', pd.player_name || name || '—'],
+    ['Mobile', pd.mobile_number || mobile || '—'],
+    ['FIDE ID', fideId || '—'],
+    ['Subscription Start', pd.subscription_start_date || '—'],
+    ['Subscription End', pd.subscription_end_date || '—'],
+  ];
+  document.getElementById('player-info-title').textContent = pd.player_name || name || 'Player Info';
+  document.getElementById('player-info-body').innerHTML = '<table style="border-collapse:collapse;width:100%">' +
+    row.map(function(r) {
+      return '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:9px 10px;color:var(--text2);font-size:0.83rem;white-space:nowrap">' + r[0] + '</td>' +
+        '<td style="padding:9px 10px;font-weight:600">' + r[1] + '</td></tr>';
+    }).join('') + '</table>';
+  document.getElementById('player-info-overlay').classList.add('open');
+}
+function closePlayerInfo() {
+  document.getElementById('player-info-overlay').classList.remove('open');
+}
 </script>
 
 <!-- Stats Player Popup -->
@@ -2322,6 +2344,16 @@ function closeStatsPopup() {
       <button class="modal-close" onclick="closeStatsPopup()">&#10005;</button>
     </div>
     <div class="modal-body" id="stats-popup-body" style="padding:14px 18px;max-height:70vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="player-info-overlay" onclick="closePlayerInfo()">
+  <div class="modal" style="width:340px;max-width:96vw" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="player-info-title">Player Info</h3>
+      <button class="modal-close" onclick="closePlayerInfo()">&#10005;</button>
+    </div>
+    <div class="modal-body" id="player-info-body" style="padding:16px 20px"></div>
   </div>
 </div>
 </body>
