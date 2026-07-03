@@ -84,16 +84,29 @@ function _handle(p) {
     } else if (action === 'read_got_rating') {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
+      var hdrs = all[0].map(function(h){ return String(h).toLowerCase().trim(); });
+      var mobCol = colIdx(hdrs, ['mobile','mobile number','mobile_number']);
       var month = p.month || '';
       var rows = all.slice(1).filter(function(r){ return !month || normalizePeriod(r[4]) === month; });
-      // Normalize period col in each row before returning
-      rows = rows.map(function(r){ var nr = r.slice(); nr[4] = normalizePeriod(r[4]); return nr; });
+      rows = rows.map(function(r){
+        var nr = r.slice(0, 8); // Name,FIDE,Status,SubEnd,Period,Classical,Rapid,Blitz
+        nr[4] = normalizePeriod(r[4]);
+        nr[8] = mobCol >= 0 ? String(r[mobCol] || '') : '';
+        return nr;
+      });
       result = { ok: true, rows: rows };
 
     } else if (action === 'read_all_got_rating') {
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var all = sh.getDataRange().getValues();
-      var rows = all.slice(1).map(function(r){ var nr = r.slice(); nr[4] = normalizePeriod(r[4]); return nr; });
+      var hdrs = all[0].map(function(h){ return String(h).toLowerCase().trim(); });
+      var mobCol = colIdx(hdrs, ['mobile','mobile number','mobile_number']);
+      var rows = all.slice(1).map(function(r){
+        var nr = r.slice(0, 8);
+        nr[4] = normalizePeriod(r[4]);
+        nr[8] = mobCol >= 0 ? String(r[mobCol] || '') : '';
+        return nr;
+      });
       result = { ok: true, rows: rows };
 
     } else if (action === 'write_got_rating') {
@@ -105,14 +118,15 @@ function _handle(p) {
     } else if (action === 'read_achievements') {
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var all = sh.getDataRange().getValues();
+      var hdrsA = all[0].map(function(h){ return String(h).toLowerCase().trim(); });
+      var mobColA = colIdx(hdrsA, ['mobile','mobile number','mobile_number']);
+      var tlColA  = colIdx(hdrsA, ['tournament link','tournament_link']);
       var month = p.month || '';
       var rows = all.slice(1);
       if (month) {
-        // col 6 = Date e.g. "2026/06/14" or "2026-06-14" — match by year-mon
         var mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         rows = rows.filter(function(r) {
           var d = String(r[6] || '');
-          // extract YYYY and MM from date string or Date object
           var parts = d.match(/(\d{4})[\/-](\d{2})/);
           if (!parts) {
             if (r[6] instanceof Date) {
@@ -123,6 +137,13 @@ function _handle(p) {
           return parts[1] + '-' + (mn[parseInt(parts[2])-1] || parts[2]) === month;
         });
       }
+      // Normalize: always return mobile at [8], tournament_link at [7]
+      rows = rows.map(function(r) {
+        var nr = r.slice(0, 7); // Name,FIDE,Tournament,Rank,Rating±,Rated,Date
+        nr[7] = tlColA  >= 0 ? String(r[tlColA]  || '') : '';
+        nr[8] = mobColA >= 0 ? String(r[mobColA] || '') : '';
+        return nr;
+      });
       result = { ok: true, rows: rows };
 
     } else if (action === 'write_achievements') {
