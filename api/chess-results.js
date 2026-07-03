@@ -68,11 +68,20 @@ export default async function handler(req, res) {
   async function getRatingFromTournament(tournId, fideId, playerLink) {
     if (!tournId) return { rating_change: null, is_rated: false };
 
-    // Parse the player's art=9 page: look for rating info in table cells
+    // Parse the player's art=9 page for "FIDE rtg +/-" and rated flag
     function parsePlayerPage(html) {
       let is_rated = false, rating_change = null;
 
-      // Collect all <td> text values
+      // Primary: look for "FIDE rtg +/-" label in a table, then grab the next <td> value
+      // chess-results renders it as: <td>FIDE rtg +/-</td><td>+8</td>
+      const fidertgMatch = html.match(/FIDE\s*rtg\s*\+\s*\/-[\s\S]{0,200}?<td[^>]*>([\s\S]*?)<\/td>/i);
+      if (fidertgMatch) {
+        const val = fidertgMatch[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
+        const v = parseInt(val);
+        if (!isNaN(v) && Math.abs(v) <= 300) rating_change = v;
+      }
+
+      // Collect all <td> text values for rated check and fallback
       const tdTexts = [];
       for (const m of html.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)) {
         const t = m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();
@@ -82,20 +91,13 @@ export default async function handler(req, res) {
       // Rated: any 4-digit number in chess rating range
       if (tdTexts.some(t => /^\d{4}$/.test(t) && +t > 999 && +t < 3500)) is_rated = true;
 
-      // Rating change: td that is EXACTLY a signed integer, absolute value 1–300
-      for (const t of tdTexts) {
-        if (/^[+\-]\d{1,3}$/.test(t)) {
-          const v = parseInt(t);
-          if (Math.abs(v) >= 1 && Math.abs(v) <= 300) { rating_change = v; break; }
-        }
-      }
-
-      // Fallback: if we see two adjacent rating-range numbers, compute delta
-      if (rating_change === null && is_rated) {
-        const ratings = tdTexts.filter(t => /^\d{4}$/.test(t) && +t > 999 && +t < 3500).map(Number);
-        if (ratings.length >= 2) {
-          const delta = ratings[ratings.length - 1] - ratings[0];
-          if (Math.abs(delta) <= 300) rating_change = delta;
+      // Fallback if primary not found: td that is exactly a signed integer ±1–300
+      if (rating_change === null) {
+        for (const t of tdTexts) {
+          if (/^[+\-]\d{1,3}$/.test(t)) {
+            const v = parseInt(t);
+            if (Math.abs(v) >= 1 && Math.abs(v) <= 300) { rating_change = v; break; }
+          }
         }
       }
 
