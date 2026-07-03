@@ -563,17 +563,18 @@ function loadAchievementsFromSheet() {
       }
       var playerMap = {};
       PLAYERS_DATA.forEach(function(p){ playerMap[String(p.fide_id)] = p; });
-      // Sheet cols: Name(0), FIDE ID(1), Tournament(2), Rank(3), Rating±(4), Rated(5), Date(6)
+      // Sheet cols: Name(0), FIDE ID(1), Tournament(2), Rank(3), Rating±(4), Rated(5), Date(6), Tournament Link(7)
       ACH_ROWS_LIVE = rows.map(function(row) {
         var pd = playerMap[String(row[1])] || {};
+        var rcVal = row[4];
         return {
           player_name: row[0] || pd.player_name || '',
           fide_id: row[1],
           status: pd.status || 1,
           tournament_name: row[2] || '',
-          tournament_link: null,
-          rank: row[3] !== '' ? Number(row[3]) : null,
-          rating_change: row[4] !== '' ? Number(row[4]) : null,
+          tournament_link: row[7] || null,
+          rank: row[3] !== '' && row[3] !== null && row[3] !== undefined ? Number(row[3]) : null,
+          rating_change: rcVal !== '' && rcVal !== null && rcVal !== undefined ? Number(rcVal) : null,
           is_rated: row[5] === 'RATED',
           rated: row[5],
           date: row[6] || '',
@@ -642,7 +643,8 @@ function fetchAchievementsFromAPI() {
             if (resp && resp.ok && resp.tournaments && resp.tournaments.length > 0) {
               resp.tournaments.forEach(function(t) {
                 allRows.push({
-                  player_name: player.player_name, fide_id: player.fide_id,
+                  player_name: t.player_name_cr || player.player_name,
+                  fide_id: player.fide_id,
                   status: player.status,
                   tournament_name: t.tournament_name, tournament_link: t.tournament_link,
                   rank: t.rank, rating_change: t.rating_change, is_rated: t.is_rated,
@@ -2046,7 +2048,7 @@ function saveAchievementsToSheet(srcRows, month) {
   var allRows = dataRows.map(function(r) {
     return [r.player_name, r.fide_id, r.tournament_name||'',
             r.rank||'', r.rating_change!==null && r.rating_change!==undefined ? r.rating_change : '',
-            r.is_rated ? 'RATED' : '', r.date||''];
+            r.is_rated ? 'RATED' : '', r.date||'', r.tournament_link||''];
   });
   setAchMsg('Saving ' + allRows.length + ' rows to sheet…', '#888');
   gasPost('write_achievements', {rows: allRows})

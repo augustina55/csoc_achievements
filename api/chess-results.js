@@ -53,8 +53,10 @@ export default async function handler(req, res) {
       const rankTxt = cells[7] ? cells[7].text : '';
       const rank = rankTxt === '-' || rankTxt === '' ? null : (parseInt(rankTxt) || null);
       rows.push({
+        player_name_cr: cells[0] ? cells[0].text : '',
         tournament_name: cells[5] ? cells[5].text : '',
         tournament_link: link ? `${CR_BASE}/${link}` : (tnrNum ? `${CR_BASE}/tnr${tnrNum}.aspx?lan=1` : null),
+        tournament_link_raw: link || null,
         tournament_id: tnrNum || null,
         date: cells[6] ? cells[6].text : '',
         rank,
@@ -63,24 +65,49 @@ export default async function handler(req, res) {
     return rows;
   }
 
-  async function getRatingFromTournament(tournId, fideId) {
+  async function getRatingFromTournament(tournId, fideId, playerLink) {
     if (!tournId) return { rating_change: null, is_rated: false };
-    try {
-      const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0&turdet=YES`);
-      if (r.status !== 200) return { rating_change: null, is_rated: false };
-      const fideStr = String(fideId);
+    const fideStr = String(fideId);
+
+    function parseRatingRow(html) {
       let is_rated = false, rating_change = null;
-      for (const trm of r.text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      for (const trm of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
         if (!trm[1].includes(fideStr)) continue;
         const cells = [...trm[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
           .map(m => m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim());
+        // Signed number = rating change (e.g. +8, -3, +0.8)
         const changeCell = cells.find(c => /^[+\-]\d+(\.\d+)?$/.test(c));
-        const ratingCells = cells.filter(c => /^\d{3,4}$/.test(c) && parseInt(c) > 999 && parseInt(c) < 3500);
+        // 4-digit numbers in chess rating range = rated event
+        const ratingCells = cells.filter(c => /^\d{4}$/.test(c) && parseInt(c) > 999 && parseInt(c) < 3500);
         if (ratingCells.length > 0) is_rated = true;
         if (changeCell) rating_change = parseFloat(changeCell);
-        break;
+        if (is_rated || rating_change !== null) break;
       }
       return { rating_change, is_rated };
+    }
+
+    try {
+      // Try the player-specific page first (has snr, art=9 — shows player's tournament results)
+      if (playerLink) {
+        // Swap art=9 for art=4 (cross-table with ratings) to get rating info
+        const crossUrl = `${CR_BASE}/${playerLink.replace(/\bart=\d+/, 'art=4')}`;
+        const cr = await rawReq(crossUrl);
+        if (cr.status === 200) {
+          const res = parseRatingRow(cr.text);
+          if (res.is_rated || res.rating_change !== null) return res;
+        }
+        // Also try art=1 (result list with initial/final rating)
+        const listUrl = `${CR_BASE}/${playerLink.replace(/\bart=\d+/, 'art=1')}`;
+        const lr = await rawReq(listUrl);
+        if (lr.status === 200) {
+          const res = parseRatingRow(lr.text);
+          if (res.is_rated || res.rating_change !== null) return res;
+        }
+      }
+      // Fallback: tournament detail page
+      const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0&turdet=YES`);
+      if (r.status !== 200) return { rating_change: null, is_rated: false };
+      return parseRatingRow(r.text);
     } catch (_) { return { rating_change: null, is_rated: false }; }
   }
 
@@ -121,7 +148,7 @@ export default async function handler(req, res) {
 
     // Enrich each tournament with rating info (up to 5 tournaments to avoid timeout)
     for (const t of tournaments.slice(0, 5)) {
-      const info = await getRatingFromTournament(t.tournament_id, fide_id);
+      const info = await getRatingFromTournament(t.tournament_id, fide_id, t.tournament_link_raw);
       t.rating_change = info.rating_change;
       t.is_rated = info.is_rated;
     }
