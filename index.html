@@ -1905,41 +1905,49 @@ function fetchAll2025() {
   var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var months = MN.map(function(m){ return '2025-' + m; });
   var sel = document.getElementById('got-month-sel');
-  var idx = 0;
-  setMsg('Fetching 2025: starting…', '#888');
+  var monthIdx = 0;
+  var summary = [];
 
   function next() {
-    if (idx >= months.length) {
-      setMsg('✓ All 2025 months fetched and saved to sheet', '#1e7a3e');
+    if (monthIdx >= months.length) {
+      setMsg('✓ All 2025 done — ' + summary.join(', '), '#1e7a3e');
       return;
     }
-    var m = months[idx++];
+    var m = months[monthIdx++];
     sel.value = m;
-    setMsg('Fetching ' + m + ' (' + idx + '/12)…', '#888');
+    var label = m.split('-')[1] + ' 2025'; // "Jan 2025"
+    setMsg('Month ' + monthIdx + '/12 — ' + label + ': loading players…', '#888');
     loadPlayersFromGAS(function() {
-      fetchGotRatingForMonth(m, function() { next(); });
+      fetchGotRatingForMonth(m, label, function(found, total) {
+        summary.push(label + ': ' + found + '/' + total + ' new');
+        next();
+      });
     });
   }
   next();
 }
 
-function fetchGotRatingForMonth(month, done) {
+function fetchGotRatingForMonth(month, label, done) {
   var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var p = month.split('-');
   var year = parseInt(p[0]), monIdx = MN.indexOf(p[1]);
   var firstOfMonth = new Date(year, monIdx, 1);
-  var srcPlayers = PLAYERS_DATA.filter(function(p) {
-    if (!String(p.fide_id).trim()) return false;
-    if (!p.subscription_start_date || !p.subscription_end_date) return false;
-    var start = parseDate(p.subscription_start_date);
-    var end   = parseDate(p.subscription_end_date);
+  var srcPlayers = PLAYERS_DATA.filter(function(pl) {
+    if (!String(pl.fide_id).trim()) return false;
+    if (!pl.subscription_start_date || !pl.subscription_end_date) return false;
+    var start = parseDate(pl.subscription_start_date);
+    var end   = parseDate(pl.subscription_end_date);
     if (!start || !end) return false;
     return start <= firstOfMonth && firstOfMonth <= end;
   });
-  if (srcPlayers.length === 0) { if (done) done(); return; }
+  if (srcPlayers.length === 0) {
+    setMsg('Month — ' + label + ': 0 active players, skipping', '#888');
+    if (done) done(0, 0);
+    return;
+  }
 
-  var total = srcPlayers.length, completed = 0;
-  var newRatings = [];
+  var total = srcPlayers.length, completed = 0, newRatings = [];
+  setMsg(label + ': fetching 0 / ' + total + ' players…', '#888');
 
   srcPlayers.forEach(function(player) {
     fetch(GAS_URL + '?action=fide_history&fide_id=' + encodeURIComponent(player.fide_id))
@@ -1956,15 +1964,14 @@ function fetchGotRatingForMonth(month, done) {
             var gStd = !(prev.classical_rating) && std > 0;
             var gRap = !(prev.rapid_rating) && rap > 0;
             var gBli = !(prev.blitz_rating) && bli > 0;
-            if (gStd || gRap || gBli) {
-              newRatings.push({ player: player, std: std, rap: rap, bli: bli, gStd: gStd, gRap: gRap, gBli: gBli });
-            }
+            if (gStd || gRap || gBli) newRatings.push({ player: player, std: std, rap: rap, bli: bli, gStd: gStd, gRap: gRap, gBli: gBli });
           }
         }
       })
       .catch(function(){})
       .finally(function(){
         completed++;
+        setMsg(label + ': fetching ' + completed + ' / ' + total + ' players — ' + newRatings.length + ' new ratings found…', '#888');
         if (completed === total) {
           if (newRatings.length > 0) {
             var rows = newRatings.map(function(r) {
@@ -1972,9 +1979,19 @@ function fetchGotRatingForMonth(month, done) {
               return [p2.player_name, p2.fide_id, statusLabel(p2.status),
                       p2.subscription_end_date||'', month, r.gStd?r.std:0, r.gRap?r.rap:0, r.gBli?r.bli:0, p2.mobile_number||''];
             });
-            gasPost('write_got_rating', {rows: rows}).catch(function(){});
+            setMsg(label + ': saving ' + rows.length + ' new records to sheet…', '#f59e0b');
+            gasPost('write_got_rating', {rows: rows})
+              .then(function(d){
+                setMsg(label + ': ✓ ' + (d.added||0) + ' saved. Moving to next month…', '#1e7a3e');
+                if (done) done(newRatings.length, total);
+              })
+              .catch(function(){
+                if (done) done(newRatings.length, total);
+              });
+          } else {
+            setMsg(label + ': ✓ Done — 0 new ratings. Moving to next month…', '#888');
+            if (done) done(0, total);
           }
-          if (done) done();
         }
       });
   });
