@@ -67,47 +67,55 @@ export default async function handler(req, res) {
 
   async function getRatingFromTournament(tournId, fideId, playerLink) {
     if (!tournId) return { rating_change: null, is_rated: false };
-    const fideStr = String(fideId);
 
-    function parseRatingRow(html) {
+    // Parse the player's art=9 page: look for rating info in table cells
+    function parsePlayerPage(html) {
       let is_rated = false, rating_change = null;
-      for (const trm of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-        if (!trm[1].includes(fideStr)) continue;
-        const cells = [...trm[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-          .map(m => m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim());
-        // Signed number = rating change (e.g. +8, -3, +0.8)
-        const changeCell = cells.find(c => /^[+\-]\d+(\.\d+)?$/.test(c));
-        // 4-digit numbers in chess rating range = rated event
-        const ratingCells = cells.filter(c => /^\d{4}$/.test(c) && parseInt(c) > 999 && parseInt(c) < 3500);
-        if (ratingCells.length > 0) is_rated = true;
-        if (changeCell) rating_change = parseFloat(changeCell);
-        if (is_rated || rating_change !== null) break;
+
+      // Collect all <td> text values
+      const tdTexts = [];
+      for (const m of html.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)) {
+        const t = m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').replace(/\s+/g,' ').trim();
+        tdTexts.push(t);
       }
+
+      // Rated: any 4-digit number in chess rating range
+      if (tdTexts.some(t => /^\d{4}$/.test(t) && +t > 999 && +t < 3500)) is_rated = true;
+
+      // Rating change: td that is EXACTLY a signed integer, absolute value 1–300
+      for (const t of tdTexts) {
+        if (/^[+\-]\d{1,3}$/.test(t)) {
+          const v = parseInt(t);
+          if (Math.abs(v) >= 1 && Math.abs(v) <= 300) { rating_change = v; break; }
+        }
+      }
+
+      // Fallback: if we see two adjacent rating-range numbers, compute delta
+      if (rating_change === null && is_rated) {
+        const ratings = tdTexts.filter(t => /^\d{4}$/.test(t) && +t > 999 && +t < 3500).map(Number);
+        if (ratings.length >= 2) {
+          const delta = ratings[ratings.length - 1] - ratings[0];
+          if (Math.abs(delta) <= 300) rating_change = delta;
+        }
+      }
+
       return { rating_change, is_rated };
     }
 
     try {
-      // Try the player-specific page first (has snr, art=9 — shows player's tournament results)
+      // Primary: fetch the player-specific page (art=9 with snr) — this is the player's tournament page
       if (playerLink) {
-        // Swap art=9 for art=4 (cross-table with ratings) to get rating info
-        const crossUrl = `${CR_BASE}/${playerLink.replace(/\bart=\d+/, 'art=4')}`;
-        const cr = await rawReq(crossUrl);
-        if (cr.status === 200) {
-          const res = parseRatingRow(cr.text);
-          if (res.is_rated || res.rating_change !== null) return res;
-        }
-        // Also try art=1 (result list with initial/final rating)
-        const listUrl = `${CR_BASE}/${playerLink.replace(/\bart=\d+/, 'art=1')}`;
-        const lr = await rawReq(listUrl);
-        if (lr.status === 200) {
-          const res = parseRatingRow(lr.text);
+        const url = `${CR_BASE}/${playerLink}`;
+        const r = await rawReq(url);
+        if (r.status === 200) {
+          const res = parsePlayerPage(r.text);
           if (res.is_rated || res.rating_change !== null) return res;
         }
       }
-      // Fallback: tournament detail page
+      // Fallback: tournament general page
       const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0&turdet=YES`);
       if (r.status !== 200) return { rating_change: null, is_rated: false };
-      return parseRatingRow(r.text);
+      return parsePlayerPage(r.text);
     } catch (_) { return { rating_change: null, is_rated: false }; }
   }
 
