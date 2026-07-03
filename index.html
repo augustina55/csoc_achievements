@@ -504,7 +504,7 @@ function renderAchieversTable(data) {
       '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+fideId+'\',\''+pName.replace(/'/g,"\\'")+'\',' +
         '\''+mobile+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#16a34a"></td>' +
       '<td>'+statusLabel(r.status)+'</td>' +
-      '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer" title="'+(r.tournament_name||'')+'">'+tn+'</a>'+ratedTag+'</td>' +
+      '<td><a href="https://chess-results.com/fact.aspx?lan=1&fide_id='+fideId+'" target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer" title="'+pName+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td>'+(rank ? rankChip(rank) : '<span class="na">—</span>')+'</td>' +
       '<td>'+ratingChange(rc)+'</td>' +
       '<td><button class="btn-poster" onclick="openAchPoster('+i+')">🖼 Poster</button></td>' +
