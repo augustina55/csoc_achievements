@@ -258,7 +258,7 @@ function syncPlayersFromExplorer() {
   Logger.log('=== syncPlayersFromExplorer END ===');
 }
 
-// ── Setup daily 1pm trigger — run this ONCE manually ─────────────────────────
+// ── Setup daily 8am + 6pm triggers — run this ONCE manually ─────────────────
 function setupDailySync() {
   // Remove any existing triggers for syncPlayersFromExplorer
   ScriptApp.getProjectTriggers().forEach(function(t) {
@@ -267,11 +267,10 @@ function setupDailySync() {
     }
   });
   ScriptApp.newTrigger('syncPlayersFromExplorer')
-    .timeBased()
-    .everyDays(1)
-    .atHour(13) // 1pm (script timezone)
-    .create();
-  Logger.log('Daily sync trigger created at 1pm');
+    .timeBased().everyDays(1).atHour(8).create();  // 8am
+  ScriptApp.newTrigger('syncPlayersFromExplorer')
+    .timeBased().everyDays(1).atHour(18).create(); // 6pm
+  Logger.log('Daily sync triggers created at 8am and 6pm');
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
