@@ -97,6 +97,15 @@
   .btn-view:hover { background: rgba(37,99,235,0.14); }
   .na { color: var(--text2); opacity: 0.45; }
 
+  /* ── Global loading bar ── */
+  #load-bar-wrap { position:fixed;top:0;left:0;width:100%;height:3px;z-index:9999;pointer-events:none;opacity:0;transition:opacity .2s; }
+  #load-bar-wrap.active { opacity:1; }
+  #load-bar { height:100%;width:0%;background:var(--accent);transition:width .3s ease;border-radius:0 2px 2px 0; }
+  #load-bar-wrap.indeterminate #load-bar { width:100%;animation:loadSlide 1.2s ease-in-out infinite; }
+  @keyframes loadSlide { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+  .load-skeleton { background:linear-gradient(90deg,var(--surface2) 25%,var(--border) 50%,var(--surface2) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite;border-radius:4px;height:14px; }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
   /* ── Achievers panel ── */
   .achievers-panel { width: 100%; overflow-y: auto; padding: 20px 28px; }
   .achievers-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
@@ -158,6 +167,7 @@
 </style>
 </head>
 <body>
+<div id="load-bar-wrap"><div id="load-bar"></div></div>
 
 <header>
   <div class="header-title">
@@ -213,7 +223,6 @@
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto">
         <select id="got-month-sel" onchange="loadGotRating()" style="border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:0.83rem;background:#fff;color:var(--text);outline:none;cursor:pointer"></select>
         <button class="filter-btn active" onclick="confirmFetchFromAPI()" id="got-fetch-btn" style="padding:5px 16px">⬇ Fetch from API</button>
-        <button class="filter-btn" onclick="fetchAll2025()" style="padding:5px 14px;background:#f59e0b;color:#fff;border-color:#f59e0b">⬇ Fetch Jan–Dec 2025</button>
       </div>
     </div>
     <div id="got-rating-msg" style="font-size:0.81rem;color:#888;padding:6px 0 2px">Select a month and click Fetch.</div>
@@ -593,13 +602,15 @@ function loadAchievementsFromSheet() {
   var month = selectedAchMonth();
   if (!month) return;
   if (!GAS_URL) { setAchMsg('GAS_URL not configured.', '#c0392b'); return; }
-  setAchMsg('Loading from sheet for ' + month + '…', '#888');
+  loadBarStart();
+  setAchMsg('Fetching data from sheet…', '#888');
   var achUrl = month === 'All'
     ? GAS_URL + '?action=read_achievements'
     : GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month);
   fetch(achUrl)
     .then(function(r){ return r.json(); })
     .then(function(d) {
+      loadBarDone();
       if (!d.ok) { setAchMsg('Sheet error: ' + (d.error||'unknown'), '#c0392b'); return; }
       var rows = d.rows || [];
       if (rows.length === 0) {
@@ -637,7 +648,7 @@ function loadAchievementsFromSheet() {
       document.getElementById('badge-ach') && (document.getElementById('badge-ach').textContent = ACH_ROWS_LIVE.length);
       setAchMsg('✓ Loaded ' + ACH_ROWS_LIVE.length + ' records from sheet for ' + month, '#1e7a3e');
     })
-    .catch(function(e){ setAchMsg('Could not load from sheet.', '#c0392b'); });
+    .catch(function(e){ loadBarDone(); setAchMsg('Could not load from sheet.', '#c0392b'); });
 }
 
 // ── Fetch Achievements from chess-results API ─────────────────────────────────
@@ -1848,10 +1859,29 @@ function loadConsent() {
     }).catch(function(){});
 }
 
+// ── Loading bar helpers ───────────────────────────────────────────────────────
+function loadBarStart() {
+  var w = document.getElementById('load-bar-wrap');
+  var b = document.getElementById('load-bar');
+  if (!w || !b) return;
+  w.classList.add('active','indeterminate');
+  b.style.width = '0%';
+}
+function loadBarDone() {
+  var w = document.getElementById('load-bar-wrap');
+  if (!w) return;
+  w.classList.remove('indeterminate');
+  var b = document.getElementById('load-bar');
+  if (b) b.style.width = '100%';
+  setTimeout(function(){ w.classList.remove('active'); if(b) b.style.width='0%'; }, 400);
+}
+
 // Start loading immediately on page load
 loadPlayersFromGAS();
 loadConsent();
 loadAchievementsFromSheet();
+// Auto-load Got Rating from sheet for selected month
+setTimeout(function(){ loadGotRating(); }, 200);
 
 // Build month options: Jan 2026 → current month, newest first
 (function buildMonthSel() {
@@ -2112,10 +2142,12 @@ function fetchGotRating() {
 function loadGotFromSheet() {
   var month = selectedMonth();
   if (!GAS_URL) { setMsg('GAS_URL not configured — please hard-refresh (Ctrl+Shift+R).', '#c0392b'); return; }
-  setMsg('Loading from sheet for ' + month + '…');
+  loadBarStart();
+  setMsg('Fetching data from sheet…');
   fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
     .then(function(d) {
+      loadBarDone();
       if (!d.ok) { setMsg('Sheet error: ' + (d.error || 'unknown'), '#c0392b'); return; }
       var rows = d.rows || [];
       if (rows.length === 0) {
@@ -2143,7 +2175,7 @@ function loadGotFromSheet() {
       renderGotRating(results, document.getElementById('got-rating-tbody'));
       setMsg('✓ Loaded ' + results.length + ' records from sheet for ' + month, '#1e7a3e');
     })
-    .catch(function(e){ setMsg('Could not reach sheet. Check GAS_URL.', '#c0392b'); });
+    .catch(function(e){ loadBarDone(); setMsg('Could not reach sheet. Check GAS_URL.', '#c0392b'); });
 }
 
 // ── On tab switch / month change: load from sheet only ────────────────────────
