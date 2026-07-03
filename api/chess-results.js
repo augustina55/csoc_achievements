@@ -65,6 +65,27 @@ export default async function handler(req, res) {
     return rows;
   }
 
+  // Fetch the tournament page, find the player by FIDE ID, return their specific link
+  async function getPlayerPageLink(tournId, fideId) {
+    try {
+      const url = `${CR_BASE}/tnr${tournId}.aspx?lan=1`;
+      const r = await rawReq(url);
+      if (r.status !== 200) return null;
+      const fideStr = String(fideId);
+      // Each player row has a link like: tnrXXX.aspx?lan=1&art=9&fed=IND&snr=12&SNode=S0
+      // Find the row containing this FIDE ID and extract any href with snr=
+      for (const trm of r.text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+        if (!trm[1].includes(fideStr)) continue;
+        const linkMatch = trm[1].match(/href="(tnr\d+\.aspx[^"]*snr=[^"]+)"/i);
+        if (linkMatch) return linkMatch[1];
+        // Fallback: any tnr link in this row
+        const anyLink = trm[1].match(/href="(tnr\d+\.aspx[^"]+)"/i);
+        if (anyLink) return anyLink[1];
+      }
+    } catch (_) {}
+    return null;
+  }
+
   async function getRatingFromTournament(tournId, fideId, playerLink) {
     if (!tournId) return { rating_change: null, is_rated: false };
 
@@ -158,6 +179,12 @@ export default async function handler(req, res) {
 
     // Enrich each tournament with rating info (up to 5 tournaments to avoid timeout)
     for (const t of tournaments.slice(0, 5)) {
+      // Get player-specific link from tournament page (has snr= param)
+      const playerPageRaw = await getPlayerPageLink(t.tournament_id, fide_id);
+      if (playerPageRaw) {
+        t.tournament_link = `${CR_BASE}/${playerPageRaw}`;
+        t.tournament_link_raw = playerPageRaw;
+      }
       const info = await getRatingFromTournament(t.tournament_id, fide_id, t.tournament_link_raw);
       t.rating_change = info.rating_change;
       t.is_rated = info.is_rated;
