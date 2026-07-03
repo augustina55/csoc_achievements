@@ -201,6 +201,7 @@
         <tbody id="achievers-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
       </table>
     </div>
+    <div id="ach-pagination" style="display:flex;gap:6px;align-items:center;justify-content:center;padding:10px 0;flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -224,6 +225,7 @@
         <tbody id="got-rating-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Select a month and click Fetch.</td></tr></tbody>
       </table>
     </div>
+    <div id="got-pagination" style="display:flex;gap:6px;align-items:center;justify-content:center;padding:10px 0;flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -439,6 +441,27 @@ function statusChip(s) {
 
 var currentFilter = 'all';
 var ACH_ROWS_LIVE = []; // dynamically loaded achiever rows
+var _achPage = 0;
+var _gotPage = 0;
+var PAGE_SIZE = 50;
+
+function renderPagination(containerId, page, total, onPage) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  var btnStyle = 'padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);cursor:pointer;font-size:0.82rem';
+  var activeStyle = btnStyle + ';background:var(--accent);color:#fff;border-color:var(--accent)';
+  var html = '';
+  if (page > 0) html += '<button style="'+btnStyle+'" onclick="('+onPage+')('+( page-1)+')">‹ Prev</button>';
+  var start = Math.max(0, page - 2), end = Math.min(pages - 1, page + 2);
+  for (var i = start; i <= end; i++) {
+    html += '<button style="'+(i===page?activeStyle:btnStyle)+'" onclick="('+onPage+')('+i+')">'+(i+1)+'</button>';
+  }
+  if (page < pages - 1) html += '<button style="'+btnStyle+'" onclick="('+onPage+')('+( page+1)+')">Next ›</button>';
+  html += '<span style="font-size:0.8rem;color:var(--text2);margin-left:6px">'+(page*PAGE_SIZE+1)+'–'+Math.min((page+1)*PAGE_SIZE,total)+' of '+total+'</span>';
+  el.innerHTML = html;
+}
 
 (function buildAchMonthSel() {
   var sel = document.getElementById('ach-month-sel');
@@ -474,7 +497,8 @@ function setFilter(f) {
   renderAchieversTable(ACH_ROWS_LIVE);
 }
 
-function renderAchieversTable(data) {
+function renderAchieversTable(data, page) {
+  if (page !== undefined) _achPage = page;
   var rows = (data || []).filter(function(r) {
     if (currentFilter === 'rated') return r.is_rated;
     return true;
@@ -483,22 +507,25 @@ function renderAchieversTable(data) {
   if (!tbody) return;
   if (rows.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
+    renderPagination('ach-pagination', 0, 0, '');
     return;
   }
-  tbody.innerHTML = rows.map(function(r, i) {
+  var total = rows.length;
+  var pageRows = rows.slice(_achPage * PAGE_SIZE, (_achPage + 1) * PAGE_SIZE);
+  var offset = _achPage * PAGE_SIZE;
+  tbody.innerHTML = pageRows.map(function(r, i) {
+    var globalIdx = offset + i;
     var tn      = (r.tournament_name||'').length > 38 ? (r.tournament_name||'').slice(0,38)+'…' : (r.tournament_name||'');
     var rank    = Number(r.rank) || null;
     var rc      = r.rating_change !== null && r.rating_change !== undefined && r.rating_change !== '' ? Number(r.rating_change) : null;
     var isRated = r.is_rated || r.rated === 'RATED';
-    var type    = (rank && rank <= 9) ? ((rc && rc >= 30) ? 'both' : 'rank') : 'rating';
-    var typeCls = type==='rating' ? 'type-rating' : (type==='both' ? 'type-both' : 'type-rank');
     var ratedTag = isRated ? '<span class="rated-pill">FIDE</span>' : '';
     var fideId  = String(r.fide_id||'').trim();
     var mobile  = r.mobile || '—';
     var consent = fideId && CONSENT_DATA[fideId] === 'Yes';
     var pName   = r.player_name||'';
     return '<tr>' +
-      '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
+      '<td style="color:var(--text2);font-size:0.79rem">'+(globalIdx+1)+'</td>' +
       '<td style="font-weight:600;white-space:nowrap">'+pName+'</td>' +
       '<td style="color:var(--text2)">'+mobile+'</td>' +
       '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+fideId+'\',\''+pName.replace(/'/g,"\\'")+'\',' +
@@ -507,9 +534,10 @@ function renderAchieversTable(data) {
       '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer" title="'+pName+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td>'+(rank ? rankChip(rank) : '<span class="na">—</span>')+'</td>' +
       '<td>'+ratingChange(rc)+'</td>' +
-      '<td><button class="btn-poster" onclick="openAchPoster('+i+')">🖼 Poster</button></td>' +
+      '<td><button class="btn-poster" onclick="openAchPoster('+globalIdx+')">🖼 Poster</button></td>' +
       '</tr>';
   }).join('');
+  renderPagination('ach-pagination', _achPage, total, 'function(p){_achPage=p;renderAchieversTable(ACH_ROWS_LIVE)}');
 }
 
 function openAchPoster(i) {
@@ -580,6 +608,7 @@ function loadAchievementsFromSheet() {
           date: row[6] || '',
         };
       });
+      _achPage = 0;
       renderAchieversTable(ACH_ROWS_LIVE);
       document.getElementById('badge-ach') && (document.getElementById('badge-ach').textContent = ACH_ROWS_LIVE.length);
       setAchMsg('✓ Loaded ' + ACH_ROWS_LIVE.length + ' records from sheet for ' + month, '#1e7a3e');
@@ -664,6 +693,7 @@ function fetchAchievementsFromAPI() {
 
   function finish() {
     ACH_ROWS_LIVE = allRows;
+    _achPage = 0;
     renderAchieversTable(ACH_ROWS_LIVE);
     var errNote = apiErrors > 0 ? ' (' + apiErrors + ' errors)' : '';
     setAchMsg('✓ Found ' + allRows.length + ' results for ' + month + errNote + ' — saving to sheet…', '#1e7a3e');
@@ -1988,6 +2018,7 @@ function loadGotFromSheet() {
           gStd: !!(Number(row[5])>0), gRap: !!(Number(row[6])>0), gBli: !!(Number(row[7])>0) };
       });
       document.getElementById('badge-got').textContent = results.length;
+      _gotPage = 0;
       renderGotRating(results, document.getElementById('got-rating-tbody'));
       setMsg('✓ Loaded ' + results.length + ' records from sheet for ' + month, '#1e7a3e');
     })
@@ -2145,12 +2176,11 @@ function loadRatingStats() {
         + '<thead>'
         + '<tr style="background:var(--surface2)">'
         + '<th rowspan="2" style="'+th+';text-align:left;min-width:90px">Month</th>'
-        + '<th rowspan="2" style="'+th+';background:#e0e7ff;color:#3730a3">Total</th>'
         + '<th colspan="4" style="'+th+';background:#d1fae5;color:#065f46">Active</th>'
         + '<th colspan="4" style="'+th+';background:#fee2e2;color:#991b1b">Non-Active</th>'
         + '</tr>'
         + '<tr style="background:var(--surface2)">'
-        + '<th style="'+th+';background:#d1fae5">Total</th>'
+        + '<th style="'+th+';background:#d1fae5">Total Students</th>'
         + '<th style="'+th+';background:#d1fae5">Classical</th>'
         + '<th style="'+th+';background:#d1fae5">Rapid</th>'
         + '<th style="'+th+';background:#d1fae5">Blitz</th>'
@@ -2181,7 +2211,6 @@ function loadRatingStats() {
         }
         html += '<tr style="border-bottom:1px solid var(--border)">'
           + '<td style="padding:8px 14px;font-weight:600;border:1px solid var(--border)">' + p + '</td>'
-          + ct(ap.concat(np),'All','#ede9fe','#5b21b6')
           + ct(ap,'Active','#f0fdf4','#059669')
           + ct(aStd,'Active Classical','#f0fdf4','#059669')
           + ct(aRap,'Active Rapid','#f0fdf4','#059669')
@@ -2219,20 +2248,25 @@ function renderGotRating(results, tbody) {
   gotRatingResults = results;
   if (results.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">No results.</td></tr>';
+    renderPagination('got-pagination', 0, 0, '');
     return;
   }
   function cell(val, isNew) {
     if (!val) return '<span class="na">—</span>';
     return isNew ? '<b style="color:var(--accent)">'+val+'</b>' : val;
   }
-  tbody.innerHTML = results.map(function(r, i) {
+  var total = results.length;
+  var pageRows = results.slice(_gotPage * PAGE_SIZE, (_gotPage + 1) * PAGE_SIZE);
+  var offset = _gotPage * PAGE_SIZE;
+  tbody.innerHTML = pageRows.map(function(r, i) {
+    var globalIdx = offset + i;
     var p = r.player;
     var gFideId = String(p.fide_id||'').trim();
     var consent = gFideId && CONSENT_DATA[gFideId] === 'Yes';
     var gName   = p.cr_name||p.player_name||'';
     var gMobile = p.mobile_number||'—';
     return '<tr>' +
-      '<td style="color:var(--text2);font-size:0.79rem">'+(i+1)+'</td>' +
+      '<td style="color:var(--text2);font-size:0.79rem">'+(globalIdx+1)+'</td>' +
       '<td style="font-weight:600">'+gName+'</td>' +
       '<td style="color:var(--text2)">'+gMobile+'</td>' +
       '<td style="text-align:center"><input type="checkbox"'+(consent?' checked':'')+' onchange="saveConsent(\''+gFideId+'\',\''+gName.replace(/'/g,"\\'")+'\',' +
@@ -2242,9 +2276,10 @@ function renderGotRating(results, tbody) {
       '<td>'+cell(r.rap,r.gRap)+'</td>' +
       '<td>'+cell(r.bli,r.gBli)+'</td>' +
       '<td style="color:var(--text2)">'+(r.period||'—')+'</td>' +
-      '<td><button class="btn-poster" onclick="openGotRatingPoster('+i+')">🖼 Poster</button></td>' +
+      '<td><button class="btn-poster" onclick="openGotRatingPoster('+globalIdx+')">🖼 Poster</button></td>' +
       '</tr>';
   }).join('');
+  renderPagination('got-pagination', _gotPage, total, 'function(p){_gotPage=p;renderGotRating(gotRatingResults,document.getElementById(\'got-rating-tbody\'))}');
 }
 
 // ── Stats Player Popup ────────────────────────────────────────────────────────
