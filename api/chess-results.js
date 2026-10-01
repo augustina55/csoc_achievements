@@ -83,6 +83,13 @@ export default async function handler(req, res) {
     return null;
   }
 
+  // Rated only if the tournament name says FIDE or RATED (but not "unrated" / "non-FIDE" / "non rated")
+  function isRatedName(name) {
+    var n = String(name || '');
+    if (/\bun-?rated\b|\bnon[\s-]*(fide|rated)\b/i.test(n)) return false;
+    return /\b(fide|rated)\b/i.test(n);
+  }
+
   async function getRatingFromTournament(tournId, fideId, playerLink) {
     if (!tournId) return { rating_change: null, is_rated: false };
 
@@ -172,7 +179,11 @@ export default async function handler(req, res) {
 
     if (sr.status !== 200) return res.status(200).json({ ok: false, error: 'chess-results search HTTP ' + sr.status });
 
-    const tournaments = parseSearchHtml(sr.text, fide_id);
+    // skip_tnr=123,456 → tournaments already saved; leave them out (and don't spend time enriching them)
+    const skipSet = new Set(String(req.query.skip_tnr || '').split(',').map(s => s.trim()).filter(Boolean));
+    const found = parseSearchHtml(sr.text, fide_id);
+    const tournaments = found.filter(t => !skipSet.has(String(t.tournament_id)));
+    const skipped = found.length - tournaments.length;
 
     // Enrich each tournament with rating info (up to 5 tournaments to avoid timeout)
     for (const t of tournaments.slice(0, 5)) {
@@ -184,10 +195,10 @@ export default async function handler(req, res) {
       }
       const info = await getRatingFromTournament(t.tournament_id, fide_id, t.tournament_link_raw);
       t.rating_change = info.rating_change;
-      t.is_rated = info.is_rated;
+      t.is_rated = isRatedName(t.tournament_name);
     }
 
-    res.status(200).json({ ok: true, tournaments });
+    res.status(200).json({ ok: true, tournaments, skipped });
   } catch (e) {
     res.status(200).json({ ok: false, error: e.message });
   }

@@ -4,9 +4,11 @@
  * HOW TO DEPLOY:
  *   1. Open your GAS project
  *   2. Replace the contents of sheet_api.gs with this file
- *   3. Run setupDailySync() once to create the 1pm daily trigger
- *   4. Deploy → New deployment → Web app (Execute as: Me, Access: Anyone)
- *   5. Copy the Web App URL → paste as GAS_URL in build_html.js
+ *   3. Project Settings → Script properties: add EXPLORER_USER and EXPLORER_PASS
+ *      (explorer.circlechess.com login); set Time zone to Asia/Kolkata
+ *   4. Run setupDailySync() once → daily triggers: players sync 5pm, achievements check 9pm
+ *   5. Deploy → New deployment → Web app (Execute as: Me, Access: Anyone)
+ *   6. Copy the Web App URL → paste as GAS_URL in build_html.js
  *
  * Sheets required (auto-created if missing):
  *   "Players"       — master player list (synced daily from circlechess explorer)
@@ -15,7 +17,14 @@
  */
 
 var SS_ID = '1oXqceUMlEYF9mpHyBteh8lD-gb69EsYIvNqOune31mI';
-var EXPLORER_URL = 'https://explorer.circlechess.com/1171/';
+var EXPLORER_BASE     = 'https://explorer.circlechess.com';
+var EXPLORER_QUERY_ID = 1150; // player list: mobile_number, player_name, fide_id, subscription dates, status
+var CR_API_URL        = 'https://csoc-achievements.vercel.app/api/chess-results';
+var ACH_LOOKBACK_DAYS = 3;    // check tournaments that ended in the last N days
+var ACH_BATCH         = 10;   // parallel API calls per batch
+var ACH_MAIL_TO       = 'augustin@circlechess.com';
+var ACH_MAIL_MAX_RANK = 5;    // mail when final rank <= this ...
+var ACH_MAIL_MIN_GAIN = 20;   // ... and rating change > this
 
 // ── Sheet headers ────────────────────────────────────────────────────────────
 var PLAYERS_HEADERS = ['Player Name','FIDE ID','Mobile','Subscription Start','Subscription End','Status','Updated At'];
@@ -206,92 +215,222 @@ function _handle(p) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ── Daily sync from circlechess.com/1171 ─────────────────────────────────────
+// ── Daily 5pm: sync Players sheet from explorer query 1150 ──────────────────
+// Needs Script Properties EXPLORER_USER and EXPLORER_PASS
+// (Project Settings → Script properties). The explorer requires a login.
 function syncPlayersFromExplorer() {
   Logger.log('=== syncPlayersFromExplorer START ===');
   try {
-    var resp = UrlFetchApp.fetch(EXPLORER_URL, {
-      muteHttpExceptions: true,
-      headers: { 'Accept': 'application/json, text/html' }
+    var props = PropertiesService.getScriptProperties();
+    var user = props.getProperty('EXPLORER_USER'), pass = props.getProperty('EXPLORER_PASS');
+    if (!user || !pass) throw new Error('Set EXPLORER_USER and EXPLORER_PASS in Script Properties');
+
+    var cookies = explorerLogin(user, pass);
+    var resp = UrlFetchApp.fetch(EXPLORER_BASE + '/' + EXPLORER_QUERY_ID + '/download', {
+      muteHttpExceptions: true, followRedirects: false,
+      headers: { 'Cookie': cookies.join('; ') }
     });
-
-    if (resp.getResponseCode() !== 200) {
-      Logger.log('HTTP error: ' + resp.getResponseCode());
-      return;
-    }
-
+    if (resp.getResponseCode() !== 200) throw new Error('Query download HTTP ' + resp.getResponseCode());
     var text = resp.getContentText();
-    var players = [];
+    if (/<html/i.test(text.slice(0, 500))) throw new Error('Got HTML instead of CSV — login probably failed');
 
-    // Try JSON first
-    try {
-      var parsed = JSON.parse(text);
-      var arr = Array.isArray(parsed) ? parsed : (parsed.data || parsed.players || parsed.results || []);
-      players = arr.map(function(p) {
-        return [
-          p.player_name || p.name || p.Name || '',
-          p.fide_id    || p.fideId || p.fide || '',
-          p.mobile_number || p.mobile || p.phone || '',
-          p.subscription_start_date || p.start_date || p.startDate || '',
-          p.subscription_end_date   || p.end_date   || p.endDate   || '',
-          p.status !== undefined ? p.status : 1
-        ];
-      }).filter(function(r){ return r[0] || r[1]; });
+    var csv = Utilities.parseCsv(text);
+    var hdrs = csv[0].map(function(h){ return String(h).toLowerCase().trim(); });
+    var ci = {
+      name:  colIdx(hdrs, ['player_name']),
+      fide:  colIdx(hdrs, ['fide_id']),
+      mob:   colIdx(hdrs, ['mobile_number']),
+      start: colIdx(hdrs, ['subscription_start_date']),
+      end:   colIdx(hdrs, ['subscription_end_date']),
+      stat:  colIdx(hdrs, ['status'])
+    };
+    if (ci.fide < 0) throw new Error('fide_id column missing in query ' + EXPLORER_QUERY_ID + ': ' + csv[0].join(','));
+    var players = csv.slice(1).map(function(r) {
+      return [
+        ci.name  >= 0 ? r[ci.name]  : '',
+        r[ci.fide],
+        ci.mob   >= 0 ? r[ci.mob]   : '',
+        ci.start >= 0 ? r[ci.start] : '',
+        ci.end   >= 0 ? r[ci.end]   : '',
+        ci.stat  >= 0 && r[ci.stat] !== '' ? Number(r[ci.stat]) : 1
+      ];
+    }).filter(function(r){ return String(r[1] || '').trim(); });
 
-    } catch (_) {
-      // Parse HTML table
-      var rows = text.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
-      var isFirst = true;
-      rows.forEach(function(row) {
-        if (isFirst) { isFirst = false; return; } // skip header row
-        var cells = [];
-        var tdRe = /<td[^>]*>([\s\S]*?)<\/td>/gi, m;
-        while ((m = tdRe.exec(row)) !== null) {
-          cells.push(m[1].replace(/<[^>]+>/g, '').trim());
-        }
-        // Expected columns: Name, FIDE ID, Mobile, Sub Start, Sub End, Status
-        if (cells.length >= 2 && (cells[0] || cells[1])) {
-          players.push([
-            cells[0] || '',  // name
-            cells[1] || '',  // fide_id
-            cells[2] || '',  // mobile
-            cells[3] || '',  // sub start
-            cells[4] || '',  // sub end
-            cells[5] || 1    // status
-          ]);
-        }
-      });
-    }
-
-    if (players.length === 0) {
-      Logger.log('No players parsed from ' + EXPLORER_URL);
-      return;
-    }
+    if (players.length === 0) throw new Error('No players in query ' + EXPLORER_QUERY_ID);
 
     var ss = SpreadsheetApp.openById(SS_ID);
     var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
     var counts = upsertPlayers(sh, players);
     Logger.log('Synced ' + players.length + ' players: ' + counts.added + ' added, ' + counts.updated + ' updated');
-
   } catch (e) {
     Logger.log('syncPlayersFromExplorer error: ' + e.toString());
+    throw e; // show as a failed run in Executions
   }
   Logger.log('=== syncPlayersFromExplorer END ===');
 }
 
-// ── Setup daily 8am + 6pm triggers — run this ONCE manually ─────────────────
+// Django login on the explorer → cookie list incl. sessionid
+function explorerLogin(user, pass) {
+  var r1 = UrlFetchApp.fetch(EXPLORER_BASE + '/', { muteHttpExceptions: true, followRedirects: false });
+  var cookies = mergeCookieList([], readSetCookies(r1));
+  var csrf = (r1.getContentText().match(/csrfmiddlewaretoken[^>]*value=["']([^"']+)/) || [])[1] || '';
+  var r2 = UrlFetchApp.fetch(EXPLORER_BASE + '/', {
+    method: 'post', muteHttpExceptions: true, followRedirects: false,
+    headers: { 'Cookie': cookies.join('; '), 'Referer': EXPLORER_BASE + '/' },
+    payload: { username: user, password: pass, csrfmiddlewaretoken: csrf, next: '/' }
+  });
+  cookies = mergeCookieList(cookies, readSetCookies(r2));
+  if (!cookies.some(function(c){ return c.indexOf('sessionid=') === 0; })) {
+    throw new Error('Explorer login failed (HTTP ' + r2.getResponseCode() + ')');
+  }
+  return cookies;
+}
+
+function readSetCookies(resp) {
+  var h = resp.getAllHeaders()['Set-Cookie'];
+  if (!h) return [];
+  return (Array.isArray(h) ? h : [h]).map(function(c){ return String(c).split(';')[0].trim(); });
+}
+
+function mergeCookieList(a, b) {
+  var m = {};
+  a.concat(b).forEach(function(c){ var k = c.split('=')[0]; if (k) m[k] = c; });
+  return Object.keys(m).map(function(k){ return m[k]; });
+}
+
+// ── Daily 9pm: achievements for tournaments that ended in the last 3 days ────
+// Only finished tournaments (end date before today). Skips anything already in
+// the Achivements sheet, saves new rows, mails rank <= 5 with rating + > 20.
+function checkRecentAchievements() {
+  Logger.log('=== checkRecentAchievements START ===');
+  var tz = Session.getScriptTimeZone();
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var fromD = new Date(today); fromD.setDate(fromD.getDate() - ACH_LOOKBACK_DAYS);
+  var toD   = new Date(today); toD.setDate(toD.getDate() - 1); // ended yesterday or earlier = over
+  var fmtCR = function(d){ return Utilities.formatDate(d, tz, 'dd.MM.yyyy'); };
+
+  var ss = SpreadsheetApp.openById(SS_ID);
+
+  // Eligible players (same rules as the web page's Fetch from API)
+  var pAll = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS).getDataRange().getValues();
+  var ph = pAll[0].map(function(h){ return String(h).toLowerCase().trim(); });
+  var pc = {
+    name:  colIdx(ph, ['player name','player_name','name','player']),
+    fide:  colIdx(ph, ['fide id','fide_id','fideid','fide']),
+    mob:   colIdx(ph, ['mobile','mobile number','mobile_number','phone']),
+    start: colIdx(ph, ['subscription start','subscription_start_date','start date','sub start','start']),
+    end:   colIdx(ph, ['subscription end','subscription_end_date','end date','sub end','end']),
+    stat:  colIdx(ph, ['status'])
+  };
+  var players = pAll.slice(1).map(function(r) {
+    return {
+      name:    pc.name >= 0 ? String(r[pc.name] || '') : '',
+      fide_id: pc.fide >= 0 ? String(r[pc.fide] || '').trim() : '',
+      mobile:  pc.mob  >= 0 ? String(r[pc.mob]  || '') : '',
+      start:   pc.start >= 0 ? r[pc.start] : '',
+      end:     pc.end   >= 0 ? r[pc.end]   : '',
+      status:  pc.stat  >= 0 ? Number(r[pc.stat]) : 1
+    };
+  }).filter(function(p) {
+    if (!p.fide_id) return false;
+    if (p.status === 5) return true;
+    if (p.status === 1) return !p.start || new Date(p.start) <= today;
+    if (p.status === 2) return !!(p.start && p.end && new Date(p.start) <= today && new Date(p.end) >= fromD);
+    return false;
+  });
+
+  // Already-fetched results, keyed like write_achievements (fide_id | tournament)
+  var achSh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
+  var seen = {};
+  achSh.getDataRange().getValues().slice(1).forEach(function(r){ seen[makeKey(r, [1, 2])] = true; });
+
+  var newRows = [], toMail = [], errors = 0;
+  for (var i = 0; i < players.length; i += ACH_BATCH) {
+    var batch = players.slice(i, i + ACH_BATCH);
+    var resps = UrlFetchApp.fetchAll(batch.map(function(p) {
+      return {
+        url: CR_API_URL + '?fide_id=' + encodeURIComponent(p.fide_id) +
+             '&from_date=' + encodeURIComponent(fmtCR(fromD)) + '&to_date=' + encodeURIComponent(fmtCR(toD)),
+        muteHttpExceptions: true
+      };
+    }));
+    resps.forEach(function(resp, j) {
+      var p = batch[j], d = null;
+      try { d = JSON.parse(resp.getContentText()); } catch (_) {}
+      if (!d || !d.ok) { errors++; return; }
+      (d.tournaments || []).forEach(function(t) {
+        var endD = parseCrDate(t.date);
+        if (!endD || endD >= today || endD < fromD) return; // not finished yet / outside window
+        var hasRc = t.rating_change !== null && t.rating_change !== undefined && t.rating_change !== '';
+        var row = [t.player_name_cr || p.name, p.fide_id, t.tournament_name || '',
+                   t.rank || '', hasRc ? t.rating_change : '',
+                   t.is_rated ? 'RATED' : '', t.date || '', t.tournament_link || '', p.mobile];
+        var key = makeKey(row, [1, 2]);
+        if (seen[key]) return; // already fetched
+        seen[key] = true;
+        newRows.push(row);
+        if (t.rank && Number(t.rank) <= ACH_MAIL_MAX_RANK && hasRc && Number(t.rating_change) > ACH_MAIL_MIN_GAIN) {
+          toMail.push(row);
+        }
+      });
+    });
+  }
+
+  var now = new Date();
+  newRows.forEach(function(r){ achSh.appendRow(r.concat([now])); });
+  Logger.log('Checked ' + players.length + ' players, ended ' + fmtCR(fromD) + '–' + fmtCR(toD) + ': ' +
+             newRows.length + ' new results, ' + toMail.length + ' to mail, ' + errors + ' API errors');
+
+  if (toMail.length) sendAchievementMail(toMail, fmtCR(fromD), fmtCR(toD));
+  Logger.log('=== checkRecentAchievements END ===');
+}
+
+// chess-results end date "2026/06/20" → Date at local midnight
+function parseCrDate(s) {
+  var m = String(s || '').match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+// rows: [Name, FIDE ID, Tournament, Rank, Rating ±, Rated, End date, Link, Mobile]
+function sendAchievementMail(rows, fromTxt, toTxt) {
+  var esc = function(s){ return String(s === null || s === undefined ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  var th = 'style="padding:6px 10px;border:1px solid #ddd;background:#f5f5f5;text-align:left"';
+  var td = 'style="padding:6px 10px;border:1px solid #ddd"';
+  var html = '<p>' + rows.length + ' new achievement(s) — final rank ≤ ' + ACH_MAIL_MAX_RANK +
+    ' and rating + &gt; ' + ACH_MAIL_MIN_GAIN + ' (tournaments ended ' + fromTxt + ' – ' + toTxt + ').</p>' +
+    '<table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px"><tr>' +
+    ['Player','FIDE ID','Mobile','Tournament','End date','Rank','Rating ±','Rated'].map(function(h){ return '<th ' + th + '>' + h + '</th>'; }).join('') +
+    '</tr>' +
+    rows.map(function(r) {
+      var tn = r[7] ? '<a href="' + esc(r[7]) + '">' + esc(r[2]) + '</a>' : esc(r[2]);
+      return '<tr><td ' + td + '><b>' + esc(r[0]) + '</b></td><td ' + td + '>' + esc(r[1]) + '</td><td ' + td + '>' + esc(r[8]) +
+        '</td><td ' + td + '>' + tn + '</td><td ' + td + '>' + esc(r[6]) + '</td><td ' + td + '>#' + esc(r[3]) +
+        '</td><td ' + td + '>+' + esc(r[4]) + '</td><td ' + td + '>' + (r[5] ? 'FIDE' : '—') + '</td></tr>';
+    }).join('') + '</table>';
+  var text = rows.map(function(r) {
+    return r[0] + ' (FIDE ' + r[1] + ', ' + r[8] + ') — rank #' + r[3] + ', +' + r[4] + ' — ' + r[2] + ' (ended ' + r[6] + ') ' + r[7];
+  }).join('\n');
+  MailApp.sendEmail({
+    to: ACH_MAIL_TO,
+    subject: 'CSOC achievers: ' + rows.length + ' new (' + fromTxt + ' – ' + toTxt + ')',
+    body: text,
+    htmlBody: html
+  });
+  Logger.log('Mailed ' + rows.length + ' achievements to ' + ACH_MAIL_TO);
+}
+
+// ── Setup daily triggers — run this ONCE manually (re-running replaces them) ─
+// Hours use the script time zone (Project Settings → Time zone).
 function setupDailySync() {
-  // Remove any existing triggers for syncPlayersFromExplorer
   ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'syncPlayersFromExplorer') {
-      ScriptApp.deleteTrigger(t);
-    }
+    var fn = t.getHandlerFunction();
+    if (fn === 'syncPlayersFromExplorer' || fn === 'checkRecentAchievements') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('syncPlayersFromExplorer')
-    .timeBased().everyDays(1).atHour(8).create();  // 8am
-  ScriptApp.newTrigger('syncPlayersFromExplorer')
-    .timeBased().everyDays(1).atHour(18).create(); // 6pm
-  Logger.log('Daily sync triggers created at 8am and 6pm');
+    .timeBased().everyDays(1).atHour(17).nearMinute(0).create(); // 5pm
+  ScriptApp.newTrigger('checkRecentAchievements')
+    .timeBased().everyDays(1).atHour(21).nearMinute(0).create(); // 9pm
+  Logger.log('Daily triggers created: players sync 5pm, achievements check 9pm (' + Session.getScriptTimeZone() + ')');
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
