@@ -1,13 +1,34 @@
 // Vercel serverless function — FIDE rating history for one player.
-// GET /api/fide-history?fide_id=XXXX
+// GET /api/fide-history?fide_id=XXXX[&debug=1]
 // → { ok:true, source:'fide'|'chesstools', name, data:[{ period:'YYYY-MM', classical_rating, rapid_rating, blitz_rating }] }
-//   { ok:false, error }
-// Sources, in order: FIDE's own rating-chart data (ratings.fide.com), then chesstools.
-// CORS headers are always sent, so the browser sees the real error instead of a CORS block.
+//   { ok:false, error }   (short; timeouts always contain the word "timeout")
+// debug=1 → raw FIDE status / timing / first 200 chars of the body, no cache.
+//
+// Sources: ratings.fide.com rating-chart data (requested like the XHR on FIDE's
+// own profile page), then chesstools (off with CHESSTOOLS_ENABLED=false).
+// Runs in bom1 (vercel.json): FIDE stalls requests from some Vercel regions.
+// CORS headers are always sent, so the browser sees the real error.
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 const MON = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-const SOURCE_TIMEOUT_MS = 7000;
+const FIDE_TIMEOUT_MS = 12000;
+const FIDE_RETRY_DELAY_MS = 1500;
+const CHESSTOOLS_TIMEOUT_MS = 3000;
+const CHESSTOOLS_ENABLED = process.env.CHESSTOOLS_ENABLED !== 'false';
+const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+// Successful answers per fide_id, per warm instance
+const cache = new Map();
+function cacheGet(fid) {
+  const e = cache.get(fid);
+  if (!e) return null;
+  if (Date.now() > e.exp) { cache.delete(fid); return null; }
+  return e.val;
+}
+function cacheSet(fid, val) {
+  if (cache.size > 5000) cache.clear();
+  cache.set(fid, { val, exp: Date.now() + CACHE_TTL_MS });
+}
 
 // ratings.fide.com answers roughly one request at a time per client; extra
 // parallelism only queues there, so cap in-flight FIDE requests per instance.
@@ -27,15 +48,21 @@ function pump() {
   Promise.resolve().then(job.fn).then(job.resolve, job.reject).finally(() => { fideActive--; pump(); });
 }
 
-async function getJson(url, headers) {
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// One GET with a timeout → { status, body, ms }; throws Error('timeout') or a network error.
+async function getText(url, headers, timeoutMs) {
+  const started = Date.now();
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), SOURCE_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, { headers, signal: ctrl.signal });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return JSON.parse((await r.text()).replace(/^﻿/, '') || 'null');
+    const body = await r.text();
+    return { status: r.status, body, ms: Date.now() - started };
   } catch (e) {
-    throw ctrl.signal.aborted ? new Error('timeout') : e;
+    const err = new Error(ctrl.signal.aborted ? 'timeout' : 'network error');
+    err.ms = Date.now() - started;
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -49,11 +76,52 @@ function chartPeriod(s) {
   return m && MON[m[2]] ? m[1] + '-' + MON[m[2]] : String(s || '');
 }
 
+function fideUrl(fid) { return 'https://ratings.fide.com/a_chart_data.phtml?event=' + encodeURIComponent(fid) + '&period=0'; }
+
+// Same headers as the XHR made by FIDE's own profile page
+function fideHeaders(fid) {
+  return {
+    'User-Agent': UA,
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': 'https://ratings.fide.com/profile/' + fid,
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+}
+
+// One retry after 1.5 s, only on a network error, 429 or 5xx. A timeout is not
+// retried: when FIDE stalls a client, a second 12 s wait just stalls again.
+async function fideFetch(fid, attempts) {
+  const once = () => fideSlot(() => getText(fideUrl(fid), fideHeaders(fid), FIDE_TIMEOUT_MS));
+  let res;
+  try {
+    res = await once();
+    attempts.push({ status: res.status, ms: res.ms });
+    if (res.status !== 429 && res.status < 500) return res;
+  } catch (e) {
+    attempts.push({ error: e.message, ms: e.ms });
+    if (e.message === 'timeout') throw e;
+  }
+  await sleep(FIDE_RETRY_DELAY_MS);
+  try {
+    res = await once();
+    attempts.push({ status: res.status, ms: res.ms });
+    return res;
+  } catch (e) {
+    attempts.push({ error: e.message, ms: e.ms });
+    throw e;
+  }
+}
+
+function parseJson(body) {
+  try { return JSON.parse(String(body || '').replace(/^﻿/, '') || 'null'); } catch (e) { return undefined; }
+}
+
 async function fromFide(fid) {
-  const data = await fideSlot(() => getJson(
-    'https://ratings.fide.com/a_chart_data.phtml?event=' + encodeURIComponent(fid) + '&period=0',
-    { 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest' }));
-  if (!Array.isArray(data)) throw new Error('unexpected response');
+  const res = await fideFetch(fid, []);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const data = parseJson(res.body);
+  if (!Array.isArray(data)) throw new Error(/^\s*</.test(res.body) ? 'blocked (HTML page)' : 'unexpected response');
   // An empty list means the player has never been on a rating list.
   return {
     name: (data[0] && data[0].name) || '',
@@ -67,12 +135,30 @@ async function fromFide(fid) {
 }
 
 async function fromChesstools(fid) {
-  const data = await getJson('https://api.chesstools.org/fide/player_history/?fide_id=' + encodeURIComponent(fid), { 'User-Agent': UA });
+  const res = await getText('https://api.chesstools.org/fide/player_history/?fide_id=' + encodeURIComponent(fid), { 'User-Agent': UA }, CHESSTOOLS_TIMEOUT_MS);
+  if (res.status !== 200) throw new Error('HTTP ' + res.status);
+  const data = parseJson(res.body);
   if (!Array.isArray(data)) throw new Error('unexpected response');
   return { name: '', data };
 }
 
-const SOURCES = [['fide', fromFide], ['chesstools', fromChesstools]];
+const SOURCES = [['fide', fromFide]].concat(CHESSTOOLS_ENABLED ? [['chesstools', fromChesstools]] : []);
+
+async function debugFide(fid) {
+  const attempts = [];
+  let res = null, error = '';
+  try { res = await fideFetch(fid, attempts); } catch (e) { error = e.message; }
+  return {
+    ok: !!res && res.status === 200 && Array.isArray(parseJson(res.body)),
+    debug: {
+      region: process.env.VERCEL_REGION || 'local',
+      fide: res
+        ? { status: res.status, ms: res.ms, body: String(res.body || '').slice(0, 200) }
+        : { status: null, error, ms: attempts.length ? attempts[attempts.length - 1].ms : null },
+      attempts,
+    },
+  };
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -80,19 +166,33 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const fid = String((req.query && req.query.fide_id) || '').trim();
+  const q = req.query || {};
+  const fid = String(q.fide_id || '').trim();
   if (!/^\d{3,12}$/.test(fid)) return res.status(200).json({ ok: false, error: 'Missing or invalid fide_id' });
+
+  if (q.debug === '1') {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json(await debugFide(fid));
+  }
+
+  const hit = cacheGet(fid);
+  if (hit) {
+    res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
+    return res.status(200).json(hit);
+  }
 
   const errors = [];
   for (const [source, fn] of SOURCES) {
     try {
       const out = await fn(fid);
-      res.setHeader('Cache-Control', 'public, s-maxage=43200, stale-while-revalidate=86400');
-      return res.status(200).json({ ok: true, source, name: out.name, data: out.data });
+      const body = { ok: true, source, name: out.name, data: out.data };
+      cacheSet(fid, body);
+      res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
+      return res.status(200).json(body);
     } catch (e) {
       errors.push(source + ': ' + e.message);
     }
   }
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'no-store'); // never cache errors
   res.status(200).json({ ok: false, error: errors.join('; ') });
 }

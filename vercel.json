@@ -1,6 +1,7 @@
 {
   "regions": ["fra1"],
   "functions": {
-    "api/chess-results.js": { "maxDuration": 60 }
+    "api/chess-results.js": { "maxDuration": 60 },
+    "api/fide-history.js": { "maxDuration": 30, "regions": ["bom1"] }
   }
 }
