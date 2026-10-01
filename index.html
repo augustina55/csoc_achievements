@@ -206,7 +206,7 @@
       <table>
         <thead><tr>
           <th>#</th><th>Player</th><th>Mobile</th><th>Consent</th><th>Status</th><th>Tournament</th>
-          <th>Rank</th><th>Rating ±</th><th></th>
+          <th id="ach-rank-th" onclick="toggleAchRankSort()" style="cursor:pointer;user-select:none" title="Sort by rank">Rank <span id="ach-rank-arrow">⇅</span></th><th>Rating ±</th><th></th>
         </tr></thead>
         <tbody id="achievers-tbody"><tr><td colspan="8" style="text-align:center;color:#aaa;padding:28px">Loading…</td></tr></tbody>
       </table>
@@ -471,6 +471,7 @@ function statusChip(s) {
 var currentFilter = 'all';
 var ACH_ROWS_LIVE = []; // dynamically loaded achiever rows
 var _achPage = 0;
+var _achRankSort = null; // null | 'asc' | 'desc'
 var _gotPage = 0;
 var PAGE_SIZE = 50;
 
@@ -527,12 +528,30 @@ function setFilter(f) {
   renderAchieversTable(ACH_ROWS_LIVE);
 }
 
+function toggleAchRankSort() {
+  _achRankSort = _achRankSort === 'asc' ? 'desc' : 'asc';
+  _achPage = 0;
+  renderAchieversTable(ACH_ROWS_LIVE);
+}
+
 function renderAchieversTable(data, page) {
   if (page !== undefined) _achPage = page;
   var rows = (data || []).filter(function(r) {
     if (currentFilter === 'rated') return r.is_rated;
     return true;
   });
+  if (_achRankSort) {
+    var dir = _achRankSort === 'asc' ? 1 : -1;
+    rows = rows.slice().sort(function(a, b) {
+      var ar = Number(a.rank) || null, br = Number(b.rank) || null;
+      if (ar === null && br === null) return 0;
+      if (ar === null) return 1;   // unranked always last
+      if (br === null) return -1;
+      return (ar - br) * dir;
+    });
+  }
+  var arrow = document.getElementById('ach-rank-arrow');
+  if (arrow) arrow.textContent = _achRankSort === 'asc' ? '▲' : (_achRankSort === 'desc' ? '▼' : '⇅');
   var tbody = document.getElementById('achievers-tbody');
   if (!tbody) return;
   if (rows.length === 0) {
@@ -564,7 +583,7 @@ function renderAchieversTable(data, page) {
       '<td><a href="'+(r.tournament_link||'#')+'" target="_blank" style="color:var(--accent);text-decoration:underline;cursor:pointer" title="'+pName+'">'+tn+'</a>'+ratedTag+'</td>' +
       '<td>'+(rank ? rankChip(rank) : '<span class="na">—</span>')+'</td>' +
       '<td>'+ratingChange(rc)+'</td>' +
-      '<td><button class="btn-poster" onclick="openAchPoster('+globalIdx+')">🖼 Poster</button></td>' +
+      '<td><button class="btn-poster" onclick="openAchPoster('+ACH_ROWS_LIVE.indexOf(r)+')">🖼 Poster</button></td>' +
       '</tr>';
   }).join('');
   renderPagination('ach-pagination', _achPage, total, 'function(p){_achPage=p;renderAchieversTable(ACH_ROWS_LIVE)}');
