@@ -18,7 +18,7 @@
 
 var SS_ID = '1oXqceUMlEYF9mpHyBteh8lD-gb69EsYIvNqOune31mI';
 var EXPLORER_BASE     = 'https://explorer.circlechess.com';
-var EXPLORER_QUERY_ID = 1150; // player list: mobile_number, player_name, fide_id, subscription dates, status
+var EXPLORER_QUERY_ID = 1171; // full player list incl. expired: mobile_number, player_name, fide_id, subscription dates, status
 var CR_API_URL        = 'https://csoc-achievements.vercel.app/api/chess-results';
 var ACH_LOOKBACK_DAYS = 3;    // check tournaments that ended in the last N days
 var ACH_BATCH         = 10;   // parallel API calls per batch
@@ -50,7 +50,82 @@ function doGet(e) {
   return _handle(p);
 }
 
+// ── Script cache for read actions ────────────────────────────────────────────
+// Each data group has a generation id; cache keys include it, so a write just
+// bumps the generation and every cached read of that group becomes unreachable.
+var READ_CACHE_TTL = 600; // seconds
+var READ_GROUPS = {
+  read_players: 'players', read_consent: 'consent',
+  read_got_rating: 'got', read_all_got_rating: 'got',
+  read_achievements: 'ach'
+};
+
+function cacheGen_(group) {
+  var c = CacheService.getScriptCache(), g = c.get('gen_' + group);
+  if (!g) { g = String(Date.now()); c.put('gen_' + group, g, 21600); }
+  return g;
+}
+
+function invalidateCache_(group) {
+  try { CacheService.getScriptCache().put('gen_' + group, Date.now() + '_' + Math.random(), 21600); } catch (_) {}
+}
+
+// Values over ~95 KB are split into chunks (cache limit is 100 KB per value)
+var CACHE_CHUNK = 25000; // chars; stays under 100 KB even for multi-byte text
+function cacheGetStr_(key) {
+  var c = CacheService.getScriptCache();
+  var hit = c.get(key);
+  if (hit !== null) return hit;
+  var n = Number(c.get(key + '_n') || 0);
+  if (!n) return null;
+  var keys = [];
+  for (var i = 0; i < n; i++) keys.push(key + '_' + i);
+  var parts = c.getAll(keys), out = '';
+  for (var j = 0; j < n; j++) { if (parts[keys[j]] === undefined) return null; out += parts[keys[j]]; }
+  return out;
+}
+
+function cachePutStr_(key, s, ttl) {
+  var c = CacheService.getScriptCache();
+  try {
+    if (s.length < CACHE_CHUNK) { c.put(key, s, ttl); return; }
+    var chunks = {}, n = Math.ceil(s.length / CACHE_CHUNK);
+    if (n > 30) return; // too big to be worth caching
+    for (var i = 0; i < n; i++) chunks[key + '_' + i] = s.substr(i * CACHE_CHUNK, CACHE_CHUNK);
+    c.putAll(chunks, ttl);
+    c.put(key + '_n', String(n), ttl);
+  } catch (_) {} // caching is best-effort
+}
+
+function cachedJson_(key, ttlSec, build) {
+  var hit = cacheGetStr_(key);
+  if (hit !== null) return hit;
+  var result = build();
+  var s = JSON.stringify(result);
+  if (result && result.ok) cachePutStr_(key, s, ttlSec);
+  return s;
+}
+
+function jsonOut_(str) {
+  return ContentService.createTextOutput(str).setMimeType(ContentService.MimeType.JSON);
+}
+
 function _handle(p) {
+  var action = p.action;
+  var group = READ_GROUPS[action];
+  if (group) {
+    // Cached reads: no spreadsheet access at all on a cache hit
+    try {
+      var key = action + '_' + (p.month || 'All') + '_' + cacheGen_(group);
+      return jsonOut_(cachedJson_(key, READ_CACHE_TTL, function() { return _handleUncached(p); }));
+    } catch (err) {
+      return jsonOut_(JSON.stringify({ ok: false, error: err.toString() }));
+    }
+  }
+  return jsonOut_(JSON.stringify(_handleUncached(p)));
+}
+
+function _handleUncached(p) {
   var result;
   try {
     var ss = SpreadsheetApp.openById(SS_ID);
@@ -88,6 +163,7 @@ function _handle(p) {
       var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
       var counts = upsertPlayers(sh, rows);
+      invalidateCache_('players');
       result = { ok: true, added: counts.added, updated: counts.updated };
 
     } else if (action === 'read_got_rating') {
@@ -122,6 +198,7 @@ function _handle(p) {
       var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Got Rating', GOT_HEADERS);
       var added = appendDedup(sh, rows, [1, 4]); // dedup on fide_id + period
+      invalidateCache_('got');
       result = { ok: true, added: added, skipped: rows.length - added };
 
     } else if (action === 'read_achievements') {
@@ -159,6 +236,7 @@ function _handle(p) {
       var rows = Array.isArray(p.rows) ? p.rows : JSON.parse(p.rows || '[]');
       var sh = getOrCreateSheet(ss, 'Achivements', ACH_HEADERS);
       var added = appendDedup(sh, rows, [1, 2]); // dedup on fide_id + tournament
+      invalidateCache_('ach');
       result = { ok: true, added: added, skipped: rows.length - added };
 
     } else if (action === 'read_consent') {
@@ -185,6 +263,7 @@ function _handle(p) {
         } else {
           sh.appendRow([name, mobile, fideId, consent]);
         }
+        invalidateCache_('consent');
         result = { ok: true };
       }
 
@@ -209,13 +288,10 @@ function _handle(p) {
   } catch (err) {
     result = { ok: false, error: err.toString() };
   }
-
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+  return result;
 }
 
-// ── Daily 5pm: sync Players sheet from explorer query 1150 ──────────────────
+// ── Daily 5pm: sync Players sheet from explorer query 1171 ──────────────────
 // Needs Script Properties EXPLORER_USER and EXPLORER_PASS
 // (Project Settings → Script properties). The explorer requires a login.
 function syncPlayersFromExplorer() {
@@ -261,12 +337,45 @@ function syncPlayersFromExplorer() {
     var ss = SpreadsheetApp.openById(SS_ID);
     var sh = getOrCreateSheet(ss, 'Players', PLAYERS_HEADERS);
     var counts = upsertPlayers(sh, players);
+    invalidateCache_('players');
     Logger.log('Synced ' + players.length + ' players: ' + counts.added + ' added, ' + counts.updated + ' updated');
   } catch (e) {
     Logger.log('syncPlayersFromExplorer error: ' + e.toString());
     throw e; // show as a failed run in Executions
   }
   Logger.log('=== syncPlayersFromExplorer END ===');
+}
+
+// ── One-off: remove rows written into the wrong columns by the first sync ────
+// Those rows have the player NAME in the mobile column and a timestamp in the
+// last column. Run once from the editor, then run syncPlayersFromExplorer.
+function cleanupBadPlayerRows() {
+  var sh = SpreadsheetApp.openById(SS_ID).getSheetByName('Players');
+  var data = sh.getDataRange().getValues();
+  var hdrs = data[0].map(function(h){ return String(h).toLowerCase().trim(); });
+  var mobCol = colIdx(hdrs, ['mobile','mobile number','mobile_number','phone']);
+  if (mobCol < 0) throw new Error('No mobile column found');
+  var bad = [];
+  for (var i = 1; i < data.length; i++) {
+    var mob = String(data[i][mobCol]).trim();
+    if (mob && /[A-Za-z]/.test(mob)) bad.push(i + 1); // a name where a phone number should be
+  }
+  Logger.log('Bad rows: ' + bad.length + (bad.length ? ' (sheet rows ' + bad[0] + '–' + bad[bad.length - 1] + ')' : ''));
+  // delete bottom-up in contiguous blocks
+  for (var j = bad.length - 1; j >= 0; ) {
+    var end = bad[j], start = end;
+    while (j - 1 >= 0 && bad[j - 1] === start - 1) { j--; start--; }
+    sh.deleteRows(start, end - start + 1);
+    j--;
+  }
+  // header for the timestamp column the first sync wrote without a header
+  var lastCol = sh.getLastColumn();
+  var hdrRow = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  for (var c = 0; c < hdrRow.length; c++) {
+    if (String(hdrRow[c]).trim() === '') { sh.getRange(1, c + 1).setValue('Updated At'); break; }
+  }
+  invalidateCache_('players');
+  Logger.log('Deleted ' + bad.length + ' rows; Players now has ' + (sh.getLastRow() - 1) + ' rows');
 }
 
 // Django login on the explorer → cookie list incl. sessionid
@@ -377,7 +486,11 @@ function checkRecentAchievements() {
   }
 
   var now = new Date();
-  newRows.forEach(function(r){ achSh.appendRow(r.concat([now])); });
+  if (newRows.length) {
+    achSh.getRange(achSh.getLastRow() + 1, 1, newRows.length, newRows[0].length + 1)
+      .setValues(newRows.map(function(r){ return r.concat([now]); }));
+    invalidateCache_('ach');
+  }
   Logger.log('Checked ' + players.length + ' players, ended ' + fmtCR(fromD) + '–' + fmtCR(toD) + ': ' +
              newRows.length + ' new results, ' + toMail.length + ' to mail, ' + errors + ' API errors');
 
@@ -445,30 +558,51 @@ function getOrCreateSheet(ss, name, headers) {
 }
 
 /**
- * Upsert players by FIDE ID (column index 1). Adds new rows, updates existing.
+ * Upsert players by FIDE ID. newRows: [name, fide_id, mobile, sub start, sub end, status].
+ * Columns are found by header name (sheet column order doesn't matter); missing
+ * columns are added. Everything is written back in one batch.
  */
 function upsertPlayers(sh, newRows) {
-  var existing = sh.getDataRange().getValues();
-  var fideToRowNum = {}; // fide_id → 1-based sheet row number
-  for (var i = 1; i < existing.length; i++) {
-    var fid = String(existing[i][1]).trim();
-    if (fid) fideToRowNum[fid] = i + 1;
+  var data = sh.getDataRange().getValues();
+  if (data.length === 0 || (data.length === 1 && data[0].join('') === '')) data = [PLAYERS_HEADERS.slice()];
+  var hdrs = data[0].map(function(h){ return String(h).toLowerCase().trim(); });
+  var fields = [
+    ['player name','player_name','name','player'],
+    ['fide id','fide_id','fideid','fide'],
+    ['mobile','mobile number','mobile_number','phone'],
+    ['subscription start','subscription_start_date','start date','sub start','start'],
+    ['subscription end','subscription_end_date','end date','sub end','end'],
+    ['status'],
+    ['updated at','updated_at']
+  ];
+  var cols = fields.map(function(cands, k) {
+    var c = colIdx(hdrs, cands);
+    if (c < 0) { c = data[0].length; data[0].push(PLAYERS_HEADERS[k]); hdrs.push(cands[0]); }
+    return c;
+  });
+  var width = data[0].length;
+  data = data.map(function(r){ while (r.length < width) r.push(''); return r; });
+
+  var fideToIdx = {}; // fide_id → index in data
+  for (var i = 1; i < data.length; i++) {
+    var f = String(data[i][cols[1]]).trim();
+    if (f) fideToIdx[f] = i;
   }
-  var added = 0, updated = 0;
-  var now = new Date();
+  var added = 0, updated = 0, now = new Date();
   newRows.forEach(function(row) {
     var fid = String(row[1]).trim();
     if (!fid) return;
-    var withTs = row.slice(0, 6).concat([now]); // ensure 7 columns
-    if (fideToRowNum[fid]) {
-      sh.getRange(fideToRowNum[fid], 1, 1, withTs.length).setValues([withTs]);
-      updated++;
+    var idx = fideToIdx[fid];
+    if (idx === undefined) {
+      var blank = []; for (var c = 0; c < width; c++) blank.push('');
+      data.push(blank); idx = data.length - 1; fideToIdx[fid] = idx; added++;
     } else {
-      sh.appendRow(withTs);
-      fideToRowNum[fid] = sh.getLastRow();
-      added++;
+      updated++;
     }
+    for (var k = 0; k < 6; k++) data[idx][cols[k]] = row[k];
+    data[idx][cols[6]] = now;
   });
+  sh.getRange(1, 1, data.length, width).setValues(data);
   return { added: added, updated: updated };
 }
 
@@ -481,17 +615,21 @@ function appendDedup(sh, newRows, keyColIndices) {
   for (var i = 1; i < existing.length; i++) {
     seen.add(makeKey(existing[i], keyColIndices));
   }
-  var added = 0;
-  var now = new Date();
+  var now = new Date(), toAdd = [];
   newRows.forEach(function(row) {
     var key = makeKey(row, keyColIndices);
     if (!seen.has(key)) {
-      sh.appendRow(row.concat([now]));
+      toAdd.push(row.concat([now]));
       seen.add(key);
-      added++;
     }
   });
-  return added;
+  if (toAdd.length) {
+    // one write instead of appendRow per row; pad rows to the same width
+    var width = toAdd.reduce(function(w, r){ return Math.max(w, r.length); }, 0);
+    toAdd = toAdd.map(function(r){ while (r.length < width) r.push(''); return r; });
+    sh.getRange(sh.getLastRow() + 1, 1, toAdd.length, width).setValues(toAdd);
+  }
+  return toAdd.length;
 }
 
 function normalizePeriod(val) {

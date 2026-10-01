@@ -532,6 +532,7 @@ var _achPage = 0;
 var _achSort = { key: null, dir: 1 };
 var _gotPage = 0;
 var _gotSort = { key: null, dir: 1 };
+var GOT_RAW_CACHE = {}; // raw Got Rating sheet rows per month
 var PAGE_SIZE = 50;
 var MON_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -741,14 +742,38 @@ function achRowFromSheet(row) {
 }
 
 // ── Load Achievements from Sheet (default view) ──────────────────────────────
+// Raw sheet rows per month: memory first, then localStorage; shown instantly,
+// then refreshed from the sheet in the background.
+var ACH_RAW_CACHE = {};
+var ACH_FRESH = {}; // months loaded from the sheet during this visit
 var _achLoadSeq = 0;
+
+function achCachedRows(month) {
+  if (ACH_RAW_CACHE[month]) return ACH_RAW_CACHE[month];
+  var ls = lsGet('csoc_ach_' + month);
+  if (ls) ACH_RAW_CACHE[month] = ls;
+  return ls;
+}
+
+function achShowRows(rows, month, msg, color, keepPage) {
+  ACH_ROWS_LIVE = (rows || []).map(achRowFromSheet);
+  if (!keepPage) _achPage = 0;
+  else _achPage = Math.min(_achPage, Math.max(0, Math.ceil(ACH_ROWS_LIVE.length / PAGE_SIZE) - 1));
+  renderAchieversTable(ACH_ROWS_LIVE);
+  var b = document.getElementById('badge-achievers'); if (b) b.textContent = ACH_ROWS_LIVE.length;
+  setAchMsg(msg, color);
+}
+
 function loadAchievementsFromSheet(note) {
   var month = selectedAchMonth();
   if (!month) return;
   if (!GAS_URL) { setAchMsg('GAS_URL not configured.', '#c0392b'); return; }
   var seq = ++_achLoadSeq;
+  var label = month === 'All' ? 'all months' : monthLabel(month);
+  var cached = achCachedRows(month);
+  if (cached) achShowRows(cached, month, (note ? note + ' · ' : '') + cached.length + ' results for ' + label + ' · Refreshing…', note ? '#1e7a3e' : '');
+  else setAchMsg((note ? note + ' · ' : '') + 'Loading from sheet…');
   loadBarStart();
-  setAchMsg('Loading from sheet…');
   var achUrl = GAS_URL + '?action=read_achievements' + (month === 'All' ? '' : '&month=' + encodeURIComponent(month));
   fetch(achUrl)
     .then(function(r){ return r.json(); })
@@ -756,14 +781,23 @@ function loadAchievementsFromSheet(note) {
       if (seq !== _achLoadSeq) return; // a newer month was selected meanwhile
       loadBarDone();
       if (!d.ok) { setAchMsg('Sheet error: ' + (d.error||'unknown'), '#c0392b'); return; }
-      ACH_ROWS_LIVE = (d.rows || []).map(achRowFromSheet);
-      _achPage = 0;
-      renderAchieversTable(ACH_ROWS_LIVE);
-      var b = document.getElementById('badge-achievers'); if (b) b.textContent = ACH_ROWS_LIVE.length;
-      var label = month === 'All' ? 'all months' : monthLabel(month);
-      setAchMsg((note ? note + ' · ' : '') + ACH_ROWS_LIVE.length + ' results for ' + label, note ? '#1e7a3e' : '');
+      var rows = d.rows || [];
+      ACH_RAW_CACHE[month] = rows; ACH_FRESH[month] = true;
+      lsSet('csoc_ach_' + month, rows);
+      achShowRows(rows, month, (note ? note + ' · ' : '') + rows.length + ' results for ' + label, note ? '#1e7a3e' : '', !!cached);
     })
-    .catch(function(){ if (seq === _achLoadSeq) { loadBarDone(); setAchMsg('Could not load from sheet.', '#c0392b'); } });
+    .catch(function(){
+      if (seq !== _achLoadSeq) return;
+      loadBarDone();
+      setAchMsg(cached ? 'Showing saved copy — could not refresh from sheet.' : 'Could not load from sheet.', '#c0392b');
+    });
+}
+
+// Achiever row → sheet row: Name, FIDE ID, Tournament, Rank, Rating±, Rated, Date, Link, Mobile
+function achSheetRow(r) {
+  return [r.player_name, r.fide_id, r.tournament_name || '',
+          r.rank || '', r.rating_change !== null && r.rating_change !== undefined ? r.rating_change : '',
+          r.is_rated ? 'RATED' : '', r.date || '', r.tournament_link || '', r.mobile || ''];
 }
 
 // ── Fetch Achievements from chess-results API (selected month only) ──────────
@@ -774,8 +808,12 @@ function confirmFetchAchievements() {
   if (!month || month === 'All') { setAchMsg('Select a month to fetch.', '#c0392b'); return; }
   if (!confirm('Fetch finished tournaments for ' + monthLabel(month) + ' from chess-results.com?\n\n' +
                'Only tournaments that have already ended are fetched, and results already in the sheet are skipped.')) return;
-  loadPlayersFromGAS(function(){ fetchAchievementsFromAPI(month); });
+  if (PLAYERS_DATA.length) fetchAchievementsFromAPI(month);
+  else loadPlayersFromGAS(function(){ fetchAchievementsFromAPI(month); });
 }
+
+var ACH_BATCH_SIZE = 40;   // FIDE IDs per /api/chess-results batch request
+var ACH_BATCH_PARALLEL = 6; // batch requests in flight at once
 
 function fetchAchievementsFromAPI(month) {
   var first = monthKeyToDate(month);
@@ -801,65 +839,88 @@ function fetchAchievementsFromAPI(month) {
   var btn = document.getElementById('ach-fetch-btn');
   _achFetching = true; if (btn) btn.disabled = true;
   loadBarStart();
-  setAchMsg('Checking sheet for already-fetched results…');
 
   // Already fetched = already in the sheet for this month (by tournament id, else by name)
-  fetch(GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month))
-    .then(function(r){ return r.json(); })
-    .catch(function(){ return { ok: false }; })
-    .then(function(d) {
-      var seenTnr = {}, seenName = {};
-      ((d && d.ok && d.rows) || []).forEach(function(row) {
-        var fid = String(row[1] || '').trim();
-        var id = tnrId(row[7]);
-        if (id) (seenTnr[fid] = seenTnr[fid] || []).push(id);
-        seenName[fid + '|' + String(row[2] || '').trim().toLowerCase()] = true;
-      });
-      run(seenTnr, seenName);
+  function buildSeen(rows) {
+    var seenTnr = {}, seenName = {};
+    (rows || []).forEach(function(row) {
+      var fid = String(row[1] || '').trim();
+      var id = tnrId(row[7]);
+      if (id) (seenTnr[fid] = seenTnr[fid] || []).push(id);
+      seenName[fid + '|' + String(row[2] || '').trim().toLowerCase()] = true;
     });
+    run(seenTnr, seenName);
+  }
+  if (ACH_FRESH[month] && ACH_RAW_CACHE[month]) {
+    buildSeen(ACH_RAW_CACHE[month]);
+  } else {
+    setAchMsg('Checking sheet for already-fetched results…');
+    fetch(GAS_URL + '?action=read_achievements&month=' + encodeURIComponent(month))
+      .then(function(r){ return r.json(); })
+      .catch(function(){ return { ok: false }; })
+      .then(function(d) { buildSeen(d && d.ok ? d.rows : []); });
+  }
 
   function run(seenTnr, seenName) {
     var total = srcPlayers.length, done = 0, apiErrors = 0, skipped = 0, newRows = [];
-    var LIMIT = 6, running = 0, queue = srcPlayers.slice();
     var fromStr = crDate(first), toStr = crDate(to);
+    var byFid = {};
+    srcPlayers.forEach(function(p){ byFid[String(p.fide_id).trim()] = p; });
+    var groups = [];
+    for (var i = 0; i < srcPlayers.length; i += ACH_BATCH_SIZE) {
+      groups.push(srcPlayers.slice(i, i + ACH_BATCH_SIZE).map(function(p){ return String(p.fide_id).trim(); }));
+    }
+    var running = 0, gi = 0;
     setAchMsg('Fetching 0 / ' + total + ' players (' + fromStr + ' – ' + toStr + ')…');
 
+    function handlePlayer(fid, resp) {
+      var player = byFid[fid];
+      if (!resp || !resp.ok) { apiErrors++; return; }
+      skipped += resp.skipped || 0;
+      (resp.tournaments || []).forEach(function(t) {
+        var end = normEndDate(t.date);
+        var endD = end ? new Date(end + 'T00:00:00') : null;
+        if (!endD || endD >= today || endD < first || endD > last) return; // still running / other month
+        var key = fid + '|' + String(t.tournament_name || '').trim().toLowerCase();
+        if (seenName[key] || (seenTnr[fid] || []).indexOf(String(t.tournament_id)) >= 0) { skipped++; return; }
+        seenName[key] = true;
+        newRows.push({
+          player_name: t.player_name_cr || player.player_name, fide_id: fid,
+          mobile: player.mobile_number || '',
+          tournament_name: t.tournament_name, tournament_link: t.tournament_link,
+          rank: t.rank, rating_change: t.rating_change, is_rated: isRatedName(t.tournament_name),
+          date: t.date
+        });
+      });
+    }
+
+    // One batch request (GET so the CDN can cache it; POST if the URL would be too long), one retry
+    function fetchGroup(ids, attempt) {
+      var skip = {};
+      ids.forEach(function(fid){ if (seenTnr[fid]) skip[fid] = seenTnr[fid]; });
+      var qs = 'fide_ids=' + encodeURIComponent(ids.join(',')) +
+               '&from_date=' + encodeURIComponent(fromStr) + '&to_date=' + encodeURIComponent(toStr) +
+               (Object.keys(skip).length ? '&skip=' + encodeURIComponent(JSON.stringify(skip)) : '');
+      var req = qs.length < 6000
+        ? fetch('/api/chess-results?' + qs)
+        : fetch('/api/chess-results', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fide_ids: ids, from_date: fromStr, to_date: toStr, skip: skip }) });
+      return req.then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(d){ if (!d || !d.ok || !d.results) throw new Error('bad response'); return d.results; })
+        .catch(function(e){ if (attempt < 1) return fetchGroup(ids, attempt + 1); return null; });
+    }
+
     function next() {
-      while (running < LIMIT && queue.length > 0) {
-        var p = queue.shift(); running++;
-        (function(player) {
-          var fid = String(player.fide_id).trim();
-          var skip = (seenTnr[fid] || []).join(',');
-          fetch('/api/chess-results?fide_id=' + encodeURIComponent(fid) +
-                '&from_date=' + encodeURIComponent(fromStr) + '&to_date=' + encodeURIComponent(toStr) +
-                (skip ? '&skip_tnr=' + encodeURIComponent(skip) : ''))
-            .then(function(r){ return r.json(); })
-            .then(function(resp) {
-              if (!resp || !resp.ok) { apiErrors++; return; }
-              skipped += resp.skipped || 0;
-              (resp.tournaments || []).forEach(function(t) {
-                var end = normEndDate(t.date);
-                var endD = end ? new Date(end + 'T00:00:00') : null;
-                if (!endD || endD >= today || endD < first || endD > last) return; // still running / other month
-                var key = fid + '|' + String(t.tournament_name || '').trim().toLowerCase();
-                if (seenName[key] || (seenTnr[fid] || []).indexOf(String(t.tournament_id)) >= 0) { skipped++; return; }
-                seenName[key] = true;
-                newRows.push({
-                  player_name: t.player_name_cr || player.player_name, fide_id: fid,
-                  mobile: player.mobile_number || '',
-                  tournament_name: t.tournament_name, tournament_link: t.tournament_link,
-                  rank: t.rank, rating_change: t.rating_change, is_rated: isRatedName(t.tournament_name),
-                  date: t.date
-                });
-              });
-            })
-            .catch(function(){ apiErrors++; })
-            .then(function() {
-              done++; running--;
-              setAchMsg('Fetching ' + done + ' / ' + total + ' players — ' + newRows.length + ' new results…');
-              if (done === total) finish(); else next();
-            });
-        })(p);
+      while (running < ACH_BATCH_PARALLEL && gi < groups.length) {
+        var ids = groups[gi++]; running++;
+        (function(ids) {
+          fetchGroup(ids, 0).then(function(results) {
+            ids.forEach(function(fid){ handlePlayer(fid, results ? results[fid] : null); });
+            done += ids.length; running--;
+            setAchMsg('Fetching ' + done + ' / ' + total + ' players — ' + newRows.length + ' new results…');
+            if (done >= total) finish(); else next();
+          });
+        })(ids);
       }
     }
 
@@ -869,7 +930,15 @@ function fetchAchievementsFromAPI(month) {
       var end = function(note) { _achFetching = false; if (btn) btn.disabled = false; loadBarDone(); loadAchievementsFromSheet(note); };
       if (!newRows.length) { end('Fetch done: ' + summary); return; }
       setAchMsg('Saving ' + newRows.length + ' new results to sheet…');
-      saveAchievementsToSheet(newRows, function(ok) { end((ok ? 'Fetch done: ' : 'Fetch done, save failed: ') + summary); });
+      saveAchievementsToSheet(newRows, function(ok) {
+        if (ok) {
+          // show the new rows straight away; the sheet refresh then runs in the background
+          ACH_RAW_CACHE[month] = (ACH_RAW_CACHE[month] || []).concat(newRows.map(achSheetRow));
+          lsSet('csoc_ach_' + month, ACH_RAW_CACHE[month]);
+          delete ACH_RAW_CACHE['All']; lsDel('csoc_ach_All');
+        }
+        end((ok ? 'Fetch done: ' : 'Fetch done, save failed: ') + summary);
+      });
     }
 
     next();
@@ -1943,23 +2012,25 @@ function _parsePlayerRows(rows) {
 }
 
 function loadPlayersFromGAS(callback) {
-  if (_playersReady && PLAYERS_DATA.length && callback) { callback(); return; } // already loaded
+  if (PLAYERS_DATA.length && callback) { callback(); return; } // already loaded (fresh or from local cache)
   if (callback) _playersCallbacks.push(callback);
   if (_playersLoading) return; // already in flight
   if (_playersReady && !callback) return;
   _playersLoading = true;
   if (!GAS_URL) { _playersReady = true; _playersLoading = false; _flushPlayerCallbacks(); return; }
   var statusEl = document.getElementById('stat-players');
-  if (statusEl) statusEl.textContent = '…';
+  // Show the last known player list right away, then refresh in the background
+  if (!PLAYERS_DATA.length) {
+    var cached = lsGet('csoc_players');
+    if (cached && cached.length) { _applyPlayerRows(cached); _flushPlayerCallbacks(); }
+    else if (statusEl) statusEl.textContent = '…';
+  }
   fetch(GAS_URL + '?action=read_players')
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (d.ok && d.rows && d.rows.length > 0) {
-        PLAYERS_DATA = _parsePlayerRows(d.rows);
-        if (statusEl) statusEl.textContent = PLAYERS_DATA.length;
-        // status / mobile columns come from the player list — refresh tables
-        if (ACH_ROWS_LIVE.length) renderAchieversTable(ACH_ROWS_LIVE);
-        if (gotRatingResults.length) renderGotRating(gotRatingResults, document.getElementById('got-rating-tbody'));
+        _applyPlayerRows(d.rows);
+        lsSet('csoc_players', d.rows);
       } else {
         console.warn('read_players:', d.error || 'no rows');
       }
@@ -1973,16 +2044,40 @@ function loadPlayersFromGAS(callback) {
     });
 }
 
+function _applyPlayerRows(rows) {
+  PLAYERS_DATA = _parsePlayerRows(rows);
+  var statusEl = document.getElementById('stat-players');
+  if (statusEl) statusEl.textContent = PLAYERS_DATA.length;
+  // status / mobile columns come from the player list — refresh tables
+  if (ACH_ROWS_LIVE.length) renderAchieversTable(ACH_ROWS_LIVE);
+  if (gotRatingResults.length) renderGotRating(gotRatingResults, document.getElementById('got-rating-tbody'));
+}
+
 function _flushPlayerCallbacks() {
   var cbs = _playersCallbacks.splice(0);
   cbs.forEach(function(fn){ fn(); });
 }
+
+// ── Local cache (localStorage, best-effort) ──────────────────────────────────
+var LS_MAX_AGE = 7 * 24 * 3600 * 1000;
+function lsGet(key) {
+  try {
+    var v = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!v || !v.t || Date.now() - v.t > LS_MAX_AGE) return null;
+    return v.data;
+  } catch (e) { return null; }
+}
+function lsSet(key, data) {
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), data: data })); } catch (e) {}
+}
+function lsDel(key) { try { localStorage.removeItem(key); } catch (e) {} }
 
 // ── Consent save ─────────────────────────────────────────────────────────────
 function saveConsent(fideId, name, mobile, checked) {
   if (!fideId || !GAS_URL) return;
   var val = checked ? 'Yes' : 'No';
   CONSENT_DATA[fideId] = val;
+  lsSet('csoc_consent', CONSENT_DATA);
   gasPost('write_consent', { fide_id: fideId, name: name, mobile: mobile, consent: val })
     .catch(function(){});
 }
@@ -1991,13 +2086,22 @@ function saveConsent(fideId, name, mobile, checked) {
 var CONSENT_DATA = {}; // fide_id → 'Yes'|'No'
 function loadConsent() {
   if (!GAS_URL) return;
+  var cached = lsGet('csoc_consent');
+  if (cached) CONSENT_DATA = cached;
   fetch(GAS_URL + '?action=read_consent')
     .then(function(r){ return r.json(); })
     .then(function(d){
+      if (!d.ok) return;
+      var fresh = {};
       (d.rows || []).forEach(function(row){
         var fid = String(row[2]||'').trim();
-        if (fid) CONSENT_DATA[fid] = String(row[3]||'').trim();
+        if (fid) fresh[fid] = String(row[3]||'').trim();
       });
+      CONSENT_DATA = fresh;
+      lsSet('csoc_consent', fresh);
+      // tick boxes for rows already on screen
+      if (ACH_ROWS_LIVE.length) renderAchieversTable(ACH_ROWS_LIVE);
+      if (gotRatingResults.length) renderGotRating(gotRatingResults, document.getElementById('got-rating-tbody'));
     }).catch(function(){});
 }
 
@@ -2143,35 +2247,53 @@ function fetchGotRating(month) {
 
 // ── Load from Sheet (default view) ───────────────────────────────────────────
 var _gotLoadSeq = 0;
+
+// Sheet columns: Name(0), FIDE ID(1), Status(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7), Mobile(8)
+function gotResultsFromRows(rows) {
+  return (rows || []).map(function(row) {
+    var mobile = row[8] || '';
+    if (!mobile) { var pd = playerById(row[1]); if (pd) mobile = pd.mobile_number || ''; }
+    var p = { player_name: row[0], fide_id: row[1], status: row[2],
+              subscription_end_date: row[3], mobile_number: mobile };
+    return { player: p, period: normalizePeriod(row[4]),
+      std: Number(row[5])||0, rap: Number(row[6])||0, bli: Number(row[7])||0,
+      gStd: Number(row[5]) > 0, gRap: Number(row[6]) > 0, gBli: Number(row[7]) > 0 };
+  });
+}
+
+function gotShowRows(rows, msg, color) {
+  var results = gotResultsFromRows(rows);
+  document.getElementById('badge-got').textContent = results.length;
+  _gotPage = 0;
+  renderGotRating(results, document.getElementById('got-rating-tbody'));
+  setMsg(msg, color);
+}
+
 function loadGotFromSheet(note) {
   var month = selectedMonth();
   if (!month) return;
   if (!GAS_URL) { setMsg('GAS_URL not configured.', '#c0392b'); return; }
   var seq = ++_gotLoadSeq;
+  var cached = GOT_RAW_CACHE[month] || lsGet('csoc_got_' + month);
+  if (cached) gotShowRows(cached, (note ? note + ' · ' : '') + cached.length + ' players for ' + monthLabel(month) + ' · Refreshing…', note ? '#1e7a3e' : '');
+  else setMsg((note ? note + ' · ' : '') + 'Loading from sheet…');
   loadBarStart();
-  setMsg('Loading from sheet…');
   fetch(GAS_URL + '?action=read_got_rating&month=' + encodeURIComponent(month))
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (seq !== _gotLoadSeq) return; // a newer month was selected meanwhile
       loadBarDone();
       if (!d.ok) { setMsg('Sheet error: ' + (d.error || 'unknown'), '#c0392b'); return; }
-      // Sheet columns: Name(0), FIDE ID(1), Status(2), Sub End(3), Period(4), Classical(5), Rapid(6), Blitz(7), Mobile(8)
-      var results = (d.rows || []).map(function(row) {
-        var mobile = row[8] || '';
-        if (!mobile) { var pd = playerById(row[1]); if (pd) mobile = pd.mobile_number || ''; }
-        var p = { player_name: row[0], fide_id: row[1], status: row[2],
-                  subscription_end_date: row[3], mobile_number: mobile };
-        return { player: p, period: normalizePeriod(row[4]),
-          std: Number(row[5])||0, rap: Number(row[6])||0, bli: Number(row[7])||0,
-          gStd: Number(row[5]) > 0, gRap: Number(row[6]) > 0, gBli: Number(row[7]) > 0 };
-      });
-      document.getElementById('badge-got').textContent = results.length;
-      _gotPage = 0;
-      renderGotRating(results, document.getElementById('got-rating-tbody'));
-      setMsg((note ? note + ' · ' : '') + results.length + ' players for ' + monthLabel(month), note ? '#1e7a3e' : '');
+      var rows = d.rows || [];
+      GOT_RAW_CACHE[month] = rows;
+      lsSet('csoc_got_' + month, rows);
+      gotShowRows(rows, (note ? note + ' · ' : '') + rows.length + ' players for ' + monthLabel(month), note ? '#1e7a3e' : '');
     })
-    .catch(function(){ if (seq === _gotLoadSeq) { loadBarDone(); setMsg('Could not reach sheet.', '#c0392b'); } });
+    .catch(function(){
+      if (seq !== _gotLoadSeq) return;
+      loadBarDone();
+      setMsg(cached ? 'Showing saved copy — could not refresh from sheet.' : 'Could not reach sheet.', '#c0392b');
+    });
 }
 
 // ── On tab switch / month change: load from sheet only ────────────────────────
@@ -2181,17 +2303,12 @@ function loadGotRating() {
 
 // ── Save Achievements to Sheet ────────────────────────────────────────────────
 function saveAchievementsToSheet(srcRows, done) {
-  var rows = (srcRows || []).map(function(r) {
-    return [r.player_name, r.fide_id, r.tournament_name || '',
-            r.rank || '', r.rating_change !== null && r.rating_change !== undefined ? r.rating_change : '',
-            r.is_rated ? 'RATED' : '', r.date || '', r.tournament_link || '', r.mobile || ''];
-  });
+  var rows = (srcRows || []).map(achSheetRow);
   if (!GAS_URL || !rows.length) { if (done) done(false); return; }
   gasPost('write_achievements', { rows: rows })
     .then(function(d){ if (done) done(!!(d && d.ok)); })
     .catch(function(){ if (done) done(false); });
 }
-
 
 // ── Rating Stats tab ──────────────────────────────────────────────────────────
 var _statsPopupData = {};
