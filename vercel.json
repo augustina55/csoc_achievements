@@ -1,7 +1,112 @@
 {
-  "regions": ["fra1"],
+  "regions": [
+    "fra1"
+  ],
   "functions": {
-    "api/chess-results.js": { "maxDuration": 60 },
-    "api/fide-history.js": { "maxDuration": 30, "regions": ["bom1"] }
+    "api/chess-results.js": {
+      "maxDuration": 60
+    },
+    "api/fide-history.js": {
+      "maxDuration": 30,
+      "regions": [
+        "bom1"
+      ]
+    },
+    "api/probe-iad1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "iad1"
+      ]
+    },
+    "api/probe-sfo1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "sfo1"
+      ]
+    },
+    "api/probe-cle1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "cle1"
+      ]
+    },
+    "api/probe-pdx1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "pdx1"
+      ]
+    },
+    "api/probe-gru1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "gru1"
+      ]
+    },
+    "api/probe-lhr1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "lhr1"
+      ]
+    },
+    "api/probe-cdg1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "cdg1"
+      ]
+    },
+    "api/probe-arn1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "arn1"
+      ]
+    },
+    "api/probe-dub1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "dub1"
+      ]
+    },
+    "api/probe-sin1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "sin1"
+      ]
+    },
+    "api/probe-hnd1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "hnd1"
+      ]
+    },
+    "api/probe-icn1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "icn1"
+      ]
+    },
+    "api/probe-kix1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "kix1"
+      ]
+    },
+    "api/probe-hkg1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "hkg1"
+      ]
+    },
+    "api/probe-syd1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "syd1"
+      ]
+    },
+    "api/probe-cpt1.js": {
+      "maxDuration": 20,
+      "regions": [
+        "cpt1"
+      ]
+    }
   }
 }
