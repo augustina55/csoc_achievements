@@ -6,14 +6,18 @@
 //           (&method=POST, &plain=1 to try other request shapes).
 //
 // Sources: ratings.fide.com rating-chart data (requested like the XHR on FIDE's
-// own profile page), then chesstools (off with CHESSTOOLS_ENABLED=false).
-// Runs in cdg1, with a backup copy (fide-history-us.js) in iad1: ratings.fide.com
-// refuses connections from some Vercel regions (bom1, fra1).
+// own profile page), then Lichess's copy of the FIDE rating lists, then chesstools
+// (off with CHESSTOOLS_ENABLED=false).
+// ratings.fide.com refuses connections from most cloud IPs (Vercel/AWS included);
+// once it does, FIDE is skipped for FIDE_BLOCK_MS and Lichess answers straight away.
+// Runs in cdg1, with a backup copy (fide-history-us.js) in iad1.
 // CORS headers are always sent, so the browser sees the real error.
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 const MON = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-const FIDE_TIMEOUT_MS = 12000;
+const FIDE_TIMEOUT_MS = 6000;
+const FIDE_BLOCK_MS = 15 * 60 * 1000;
+const LICHESS_TIMEOUT_MS = 10000;
 const FIDE_RETRY_DELAY_MS = 1500;
 const CHESSTOOLS_TIMEOUT_MS = 3000;
 const CHESSTOOLS_ENABLED = process.env.CHESSTOOLS_ENABLED !== 'false';
@@ -126,8 +130,18 @@ function parseJson(body) {
   try { return JSON.parse(String(body || '').replace(/^﻿/, '') || 'null'); } catch (e) { return undefined; }
 }
 
+// Set when ratings.fide.com refuses this instance's IP (per warm instance).
+let fideBlockedUntil = 0;
+
 async function fromFide(fid) {
-  const res = await fideFetch(fid, []);
+  if (Date.now() < fideBlockedUntil) throw new Error('skipped (IP blocked by FIDE)');
+  let res;
+  try {
+    res = await fideFetch(fid, []);
+  } catch (e) {
+    if (/blocked|timeout/.test(e.message)) fideBlockedUntil = Date.now() + FIDE_BLOCK_MS;
+    throw e;
+  }
   if (res.status !== 200) throw new Error('HTTP ' + res.status);
   const data = parseJson(res.body);
   if (!Array.isArray(data)) throw new Error(/^\s*</.test(res.body) ? 'blocked (HTML page)' : 'unexpected response');
@@ -151,7 +165,37 @@ async function fromChesstools(fid) {
   return { name: '', data };
 }
 
-const SOURCES = [['fide', fromFide]].concat(CHESSTOOLS_ENABLED ? [['chesstools', fromChesstools]] : []);
+// Lichess keeps every FIDE rating list: /api/fide/player/<id>/ratings →
+// { standard:[YYYYMMRRRR…], rapid:[…], blitz:[…] }, one entry per month the rating changed.
+async function fromLichess(fid) {
+  const base = 'https://lichess.org/api/fide/player/' + encodeURIComponent(fid);
+  const [hist, info] = await Promise.all([
+    getText(base + '/ratings', { 'User-Agent': UA, Accept: 'application/json' }, LICHESS_TIMEOUT_MS),
+    getText(base, { 'User-Agent': UA, Accept: 'application/json' }, LICHESS_TIMEOUT_MS).catch(() => null),
+  ]);
+  if (hist.status === 404) return { name: '', data: [] }; // not on any FIDE list
+  if (hist.status !== 200) throw new Error('HTTP ' + hist.status);
+  const d = parseJson(hist.body);
+  if (!d || typeof d !== 'object') throw new Error('unexpected response');
+  const byPeriod = new Map();
+  [['standard', 'classical_rating'], ['rapid', 'rapid_rating'], ['blitz', 'blitz_rating']].forEach(([key, field]) => {
+    (Array.isArray(d[key]) ? d[key] : []).forEach(v => {
+      const n = Number(v);
+      if (!(n > 0)) return;
+      const period = Math.floor(n / 1e6) + '-' + String(Math.floor(n / 1e4) % 100).padStart(2, '0');
+      const row = byPeriod.get(period) || { period, classical_rating: 0, rapid_rating: 0, blitz_rating: 0 };
+      row[field] = n % 1e4;
+      byPeriod.set(period, row);
+    });
+  });
+  const p = info && info.status === 200 ? parseJson(info.body) : null;
+  return {
+    name: (p && p.name) || '',
+    data: [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period)),
+  };
+}
+
+const SOURCES = [['fide', fromFide], ['lichess', fromLichess]].concat(CHESSTOOLS_ENABLED ? [['chesstools', fromChesstools]] : []);
 
 async function debugFide(fid, opts) {
   const attempts = [];
