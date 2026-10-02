@@ -4,6 +4,7 @@
 //   { ok:false, error }   (short; timeouts always contain the word "timeout")
 // debug=1 → raw FIDE status / timing / first 200 chars of the body, no cache
 //           (&method=POST, &plain=1 to try other request shapes).
+// source=fide|lichess|chesstools → only that source, no cache.
 //
 // Sources: ratings.fide.com rating-chart data (requested like the XHR on FIDE's
 // own profile page), then Lichess's copy of the FIDE rating lists, then chesstools
@@ -231,7 +232,9 @@ export default async function handler(req, res) {
     return res.status(200).json(await debugFide(fid, { method: q.method === 'POST' ? 'POST' : 'GET', plain: q.plain === '1' }));
   }
 
-  const hit = cacheGet(fid);
+  // &source=fide|lichess|chesstools: that source only, no cache (for testing).
+  const only = SOURCES.some(([s]) => s === q.source) ? q.source : '';
+  const hit = !only && cacheGet(fid);
   if (hit) {
     res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=604800');
     return res.status(200).json(hit);
@@ -239,6 +242,7 @@ export default async function handler(req, res) {
 
   const errors = [];
   for (const [source, fn] of SOURCES) {
+    if (only && source !== only) continue;
     try {
       const out = await fn(fid);
       const body = { ok: true, source, name: out.name, data: out.data };
