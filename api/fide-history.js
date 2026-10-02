@@ -6,7 +6,8 @@
 //
 // Sources: ratings.fide.com rating-chart data (requested like the XHR on FIDE's
 // own profile page), then chesstools (off with CHESSTOOLS_ENABLED=false).
-// Runs in bom1 (vercel.json): FIDE stalls requests from some Vercel regions.
+// Runs in cdg1, with a backup copy (fide-history-us.js) in iad1: ratings.fide.com
+// refuses connections from some Vercel regions (bom1, fra1).
 // CORS headers are always sent, so the browser sees the real error.
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
