@@ -2,7 +2,8 @@
 // GET /api/fide-history?fide_id=XXXX[&debug=1]
 // → { ok:true, source:'fide'|'chesstools', name, data:[{ period:'YYYY-MM', classical_rating, rapid_rating, blitz_rating }] }
 //   { ok:false, error }   (short; timeouts always contain the word "timeout")
-// debug=1 → raw FIDE status / timing / first 200 chars of the body, no cache.
+// debug=1 → raw FIDE status / timing / first 200 chars of the body, no cache
+//           (&method=POST, &plain=1 to try other request shapes).
 //
 // Sources: ratings.fide.com rating-chart data (requested like the XHR on FIDE's
 // own profile page), then chesstools (off with CHESSTOOLS_ENABLED=false).
@@ -51,18 +52,20 @@ function pump() {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// One GET with a timeout → { status, body, ms }; throws Error('timeout') or a network error.
-async function getText(url, headers, timeoutMs) {
+// One request with a timeout → { status, body, ms }; throws Error('timeout') or a network error
+// (err.code = the underlying cause, e.g. UND_ERR_CONNECT_TIMEOUT / ECONNRESET).
+async function getText(url, headers, timeoutMs, method) {
   const started = Date.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(url, { headers, signal: ctrl.signal });
+    const r = await fetch(url, { method: method || 'GET', headers, signal: ctrl.signal });
     const body = await r.text();
     return { status: r.status, body, ms: Date.now() - started };
   } catch (e) {
     const err = new Error(ctrl.signal.aborted ? 'timeout' : 'network error');
     err.ms = Date.now() - started;
+    err.code = e.cause && (e.cause.code || e.cause.name);
     throw err;
   } finally {
     clearTimeout(timer);
@@ -92,15 +95,18 @@ function fideHeaders(fid) {
 
 // One retry after 1.5 s, only on a network error, 429 or 5xx. A timeout is not
 // retried: when FIDE stalls a client, a second 12 s wait just stalls again.
-async function fideFetch(fid, attempts) {
-  const once = () => fideSlot(() => getText(fideUrl(fid), fideHeaders(fid), FIDE_TIMEOUT_MS));
+// opts (debug only): { method:'POST', plain:true } — plain = User-Agent + X-Requested-With only.
+async function fideFetch(fid, attempts, opts) {
+  const o = opts || {};
+  const headers = o.plain ? { 'User-Agent': UA, 'X-Requested-With': 'XMLHttpRequest' } : fideHeaders(fid);
+  const once = () => fideSlot(() => getText(fideUrl(fid), headers, FIDE_TIMEOUT_MS, o.method));
   let res;
   try {
     res = await once();
     attempts.push({ status: res.status, ms: res.ms });
     if (res.status !== 429 && res.status < 500) return res;
   } catch (e) {
-    attempts.push({ error: e.message, ms: e.ms });
+    attempts.push({ error: e.message, code: e.code, ms: e.ms });
     if (e.message === 'timeout') throw e;
   }
   await sleep(FIDE_RETRY_DELAY_MS);
@@ -109,7 +115,7 @@ async function fideFetch(fid, attempts) {
     attempts.push({ status: res.status, ms: res.ms });
     return res;
   } catch (e) {
-    attempts.push({ error: e.message, ms: e.ms });
+    attempts.push({ error: e.message, code: e.code, ms: e.ms });
     throw e;
   }
 }
@@ -145,14 +151,17 @@ async function fromChesstools(fid) {
 
 const SOURCES = [['fide', fromFide]].concat(CHESSTOOLS_ENABLED ? [['chesstools', fromChesstools]] : []);
 
-async function debugFide(fid) {
+async function debugFide(fid, opts) {
   const attempts = [];
-  let res = null, error = '';
-  try { res = await fideFetch(fid, attempts); } catch (e) { error = e.message; }
+  let res = null, error = '', ip = null;
+  try { ip = (parseJson((await getText('https://api.ipify.org?format=json', {}, 4000)).body) || {}).ip || null; } catch (e) { /* unknown */ }
+  try { res = await fideFetch(fid, attempts, opts); } catch (e) { error = e.message; }
   return {
     ok: !!res && res.status === 200 && Array.isArray(parseJson(res.body)),
     debug: {
       region: process.env.VERCEL_REGION || 'local',
+      ip,
+      request: { method: opts.method || 'GET', headers: opts.plain ? 'plain' : 'browser' },
       fide: res
         ? { status: res.status, ms: res.ms, body: String(res.body || '').slice(0, 200) }
         : { status: null, error, ms: attempts.length ? attempts[attempts.length - 1].ms : null },
@@ -173,7 +182,7 @@ export default async function handler(req, res) {
 
   if (q.debug === '1') {
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(await debugFide(fid));
+    return res.status(200).json(await debugFide(fid, { method: q.method === 'POST' ? 'POST' : 'GET', plain: q.plain === '1' }));
   }
 
   const hit = cacheGet(fid);
