@@ -107,7 +107,9 @@ async function fideFetch(fid, attempts, opts) {
     if (res.status !== 429 && res.status < 500) return res;
   } catch (e) {
     attempts.push({ error: e.message, code: e.code, ms: e.ms });
-    if (e.message === 'timeout') throw e;
+    // FIDE's firewall drops connections from blocked IPs: retrying can't help.
+    if (e.code === 'UND_ERR_CONNECT_TIMEOUT') e.message = 'connect timeout (IP blocked by FIDE)';
+    if (e.message !== 'network error') throw e;
   }
   await sleep(FIDE_RETRY_DELAY_MS);
   try {
