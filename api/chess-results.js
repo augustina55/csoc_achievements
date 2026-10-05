@@ -1,6 +1,7 @@
 // Vercel serverless function — proxies chess-results.com player search
 // Single: ?fide_id=XXXXX&from_date=01.07.2026&to_date=31.07.2026[&skip_tnr=123,456]
 //   → { ok, tournaments, skipped }
+// One tournament: ?tnr=ID&fide_id=X → { ok, rating_change, is_rated, tournament_link }
 // Batch:  ?fide_ids=ID1,ID2,...&from_date=..&to_date=..[&skip={"ID1":["123"],...}]
 //         (or POST JSON { fide_ids:[...], from_date, to_date, skip:{...} })
 //   → { ok:true, results:{ [fid]: { ok, tournaments, skipped } | { ok:false, error } } }
@@ -75,22 +76,31 @@ function parseSearchHtml(html, targetFideId) {
   return rows;
 }
 
-// Fetch the tournament page, find the player by FIDE ID, return their art=9 URL
-// Logic mirrors tournament_link.js: snr = cells[0] (starting rank column)
+// Fetch the tournament's starting-rank list, find the player by FIDE ID, return their art=9 URL.
+// art=0 + zeilen=99999 lists every player (the default page cuts big tournaments short),
+// turdet=YES shows the details chess-results hides for tournaments that ended > 5 days ago.
+// snr = cells[0] (starting rank column)
 async function getPlayerPageLink(tournId, fideId, signal) {
   try {
-    const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1`, {}, [], signal);
+    const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0&turdet=YES&zeilen=99999`, {}, [], signal);
     if (r.status !== 200) return null;
     const fideStr = String(fideId);
     for (const trm of r.text.matchAll(RE_TR)) {
       if (!trm[1].includes(fideStr)) continue;
       const cells = [...trm[1].matchAll(RE_TD)]
         .map(m => m[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim());
+      if (!cells.includes(fideStr)) continue;
       const snr = Number(cells[0]);
       if (snr) return `tnr${tournId}.aspx?lan=1&art=9&snr=${snr}&SNode=S0`;
     }
   } catch (_) {}
   return null;
+}
+
+// "-2,8" / "+70,8" / "8" → rounded integer, or null
+function parseRtgChange(text) {
+  const v = parseFloat(String(text).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().replace(',', '.'));
+  return !isNaN(v) && Math.abs(v) <= 300 ? Math.round(v) : null;
 }
 
 // Rated only if the tournament name says FIDE or RATED (but not "unrated" / "non-FIDE" / "non rated")
@@ -105,13 +115,9 @@ function parsePlayerPage(html) {
   let is_rated = false, rating_change = null;
 
   // Primary: look for "FIDE rtg +/-" label in a table, then grab the next <td> value
-  // chess-results renders it as: <td>FIDE rtg +/-</td><td>+8</td>
+  // chess-results renders it as: <td>FIDE rtg +/-</td><td>-2,8</td>
   const fidertgMatch = html.match(RE_FIDE_RTG);
-  if (fidertgMatch) {
-    const val = fidertgMatch[1].replace(/<[^>]+>/g,'').replace(/&nbsp;/g,' ').trim();
-    const v = parseInt(val);
-    if (!isNaN(v) && Math.abs(v) <= 300) rating_change = v;
-  }
+  if (fidertgMatch) rating_change = parseRtgChange(fidertgMatch[1]);
 
   // Collect all <td> text values for rated check and fallback
   const tdTexts = [];
@@ -264,6 +270,26 @@ export default async function handler(req, res) {
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch (_) { body = {}; } }
   const q = { ...(req.query || {}), ...body };
   const { fide_id, from_date, to_date } = q;
+
+  // ── One tournament: ?tnr=ID&fide_id=X → { ok, rating_change, is_rated, tournament_link } ──
+  // Used to fill in results saved without a rating change.
+  if (q.tnr) {
+    if (!/^\d+$/.test(String(q.tnr)) || !fide_id) return res.status(200).json({ ok: false, error: 'Missing tnr or fide_id' });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const link = await getPlayerPageLink(q.tnr, fide_id, ctrl.signal);
+      const info = await getRatingFromTournament(q.tnr, link, ctrl.signal);
+      // Found values never change once a tournament is over; misses may still appear later.
+      res.setHeader('Cache-Control', info.rating_change !== null ? 'public, s-maxage=86400' : 'public, s-maxage=1800');
+      return res.status(200).json({ ok: true, rating_change: info.rating_change, is_rated: info.is_rated, tournament_link: link ? `${CR_BASE}/${link}` : null });
+    } catch (e) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json({ ok: false, error: ctrl.signal.aborted ? 'timeout' : e.message });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   // ── Batch mode ──
   if (q.fide_ids) {
