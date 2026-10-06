@@ -1,7 +1,7 @@
 // Vercel serverless function — proxies chess-results.com player search
 // Single: ?fide_id=XXXXX&from_date=01.07.2026&to_date=31.07.2026[&skip_tnr=123,456]
 //   → { ok, tournaments, skipped }
-// One tournament: ?tnr=ID&fide_id=X → { ok, rating_change, is_rated, tournament_link }
+// One tournament: ?tnr=ID&fide_id=X → { ok, rating_change, is_rated, played, tournament_link }
 // Batch:  ?fide_ids=ID1,ID2,...&from_date=..&to_date=..[&skip={"ID1":["123"],...}]
 //         (or POST JSON { fide_ids:[...], from_date, to_date, skip:{...} })
 //   → { ok:true, results:{ [fid]: { ok, tournaments, skipped } | { ok:false, error } } }
@@ -25,6 +25,8 @@ const RE_TR        = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
 const RE_TD        = /<td[^>]*>([\s\S]*?)<\/td>/gi;
 const RE_TNR_HREF  = /href="(tnr\d+\.aspx[^"]+)"/i;
 const RE_FIDE_RTG  = /FIDE\s*rtg\s*\+\s*\/-[\s\S]{0,200}?<td[^>]*>([\s\S]*?)<\/td>/i;
+// The player's games table ("Rd." header) — missing when no round has been paired/played yet
+const RE_GAMES_TBL = /<th[^>]*>\s*Rd\.?\s*<\/th>/i;
 
 // Global fetch (undici) keeps connections alive and reuses them across calls in a warm instance
 async function rawReq(url, opts = {}, cookies = [], signal) {
@@ -110,9 +112,10 @@ function isRatedName(name) {
   return /\b(fide|rated)\b/i.test(n);
 }
 
-// Parse the player's art=9 page for "FIDE rtg +/-" and rated flag
+// Parse the player's art=9 page for "FIDE rtg +/-", rated flag, and whether any round was played
 function parsePlayerPage(html) {
   let is_rated = false, rating_change = null;
+  const played = RE_GAMES_TBL.test(html);
 
   // Primary: look for "FIDE rtg +/-" label in a table, then grab the next <td> value
   // chess-results renders it as: <td>FIDE rtg +/-</td><td>-2,8</td>
@@ -138,25 +141,29 @@ function parsePlayerPage(html) {
     }
   }
 
-  return { rating_change, is_rated };
+  return { rating_change, is_rated, played };
 }
 
+// played: true/false from the player's own page (no games table = tournament not played yet,
+// e.g. only the starting list was uploaded); null when that page could not be read.
 async function getRatingFromTournament(tournId, playerLink, signal) {
-  if (!tournId) return { rating_change: null, is_rated: false };
+  if (!tournId) return { rating_change: null, is_rated: false, played: null };
+  let played = null;
   try {
     // Primary: the player-specific page (art=9 with snr)
     if (playerLink) {
       const r = await rawReq(`${CR_BASE}/${playerLink}`, {}, [], signal);
       if (r.status === 200) {
         const res = parsePlayerPage(r.text);
-        if (res.is_rated || res.rating_change !== null) return res;
+        played = res.played;
+        if (!played || res.is_rated || res.rating_change !== null) return res;
       }
     }
     // Fallback: tournament general page
     const r = await rawReq(`${CR_BASE}/tnr${tournId}.aspx?lan=1&art=0&turdet=YES`, {}, [], signal);
-    if (r.status !== 200) return { rating_change: null, is_rated: false };
-    return parsePlayerPage(r.text);
-  } catch (_) { return { rating_change: null, is_rated: false }; }
+    if (r.status !== 200) return { rating_change: null, is_rated: false, played };
+    return { ...parsePlayerPage(r.text), played };
+  } catch (_) { return { rating_change: null, is_rated: false, played }; }
 }
 
 // One player → { ok, tournaments, skipped } or { ok:false, error }
@@ -196,8 +203,8 @@ async function fetchPlayer(fide_id, from_date, to_date, skipSet, signal) {
   const tournaments = found.filter(t => !skipSet.has(String(t.tournament_id)));
   const skipped = found.length - tournaments.length;
 
-  // Enrich up to 5 tournaments with rating info (in parallel; same results as before)
-  await Promise.all(tournaments.slice(0, 5).map(async t => {
+  // Enrich up to 8 tournaments with rating info and the played check (in parallel)
+  await Promise.all(tournaments.slice(0, 8).map(async t => {
     const playerPageRaw = await getPlayerPageLink(t.tournament_id, fide_id, signal);
     if (playerPageRaw) {
       t.tournament_link = `${CR_BASE}/${playerPageRaw}`;
@@ -206,9 +213,13 @@ async function fetchPlayer(fide_id, from_date, to_date, skipSet, signal) {
     const info = await getRatingFromTournament(t.tournament_id, t.tournament_link_raw, signal);
     t.rating_change = info.rating_change;
     t.is_rated = isRatedName(t.tournament_name);
+    t.played = info.played;
   }));
 
-  return { ok: true, tournaments, skipped };
+  // Tournaments past their date but never played (only a starting list on chess-results):
+  // their "rank" is just the starting rank, so leave them out.
+  const playedList = tournaments.filter(t => t.played !== false);
+  return { ok: true, tournaments: playedList, skipped, unplayed: tournaments.length - playedList.length };
 }
 
 // Per-player timeout + one retry (batch mode)
@@ -282,7 +293,7 @@ export default async function handler(req, res) {
       const info = await getRatingFromTournament(q.tnr, link, ctrl.signal);
       // Found values never change once a tournament is over; misses may still appear later.
       res.setHeader('Cache-Control', info.rating_change !== null ? 'public, s-maxage=86400' : 'public, s-maxage=1800');
-      return res.status(200).json({ ok: true, rating_change: info.rating_change, is_rated: info.is_rated, tournament_link: link ? `${CR_BASE}/${link}` : null });
+      return res.status(200).json({ ok: true, rating_change: info.rating_change, is_rated: info.is_rated, played: info.played, tournament_link: link ? `${CR_BASE}/${link}` : null });
     } catch (e) {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ ok: false, error: ctrl.signal.aborted ? 'timeout' : e.message });

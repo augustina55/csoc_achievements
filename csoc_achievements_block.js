@@ -6,7 +6,9 @@
 //   2. Got Rating    — first FIDE ratings per month (cc_csoc_got_rating);
 //                      "Fetch from API" checks FIDE history of players active that month
 //   3. Rating Stats  — Got Rating counts per month (active vs non-active) + CSV export
-//   4. Custom Poster — free-form poster editor
+//   4. Student Progress — FIDE rating at first subscription start vs last end, per student
+//   5. Consent       — cc_csoc_cx_consent records
+//   6. Custom Poster — free-form poster editor
 // Posters are drawn on a <canvas> inside the block (live preview) and
 // downloaded as PNG — same layout as the site's dlPNG().
 //
@@ -42,6 +44,11 @@ const TBL = {
   ach: 'cc_csoc_achievements',
   got: 'cc_csoc_got_rating',
   consent: 'cc_csoc_cx_consent',
+  regView: 'view_csoc_registration_new',          // player -> batch code (class)
+  groupBatch: 'cc_csoc_batch_name_mapping',       // group batch -> coach
+  personalBatch: 'cc_csoc_personal_batch_details', // 1:1 batch -> coach
+  assignment: 'cc_assignment_relationship',       // student mobile_number -> resource_id
+  adminUsers: 'cc_admin_users',                    // id (= resource_id) -> name
 };
 const TBL_SOURCE = {
   [TBL.users]: 'circlechess',
@@ -49,6 +56,11 @@ const TBL_SOURCE = {
   [TBL.ach]: 'main',
   [TBL.got]: 'main',
   [TBL.consent]: 'main',
+  [TBL.regView]: 'readreplica_circlechess',
+  [TBL.groupBatch]: 'circlechess',
+  [TBL.personalBatch]: 'circlechess',
+  [TBL.assignment]: 'circlechess',
+  [TBL.adminUsers]: 'circlechess',
 };
 function dbHeaders(collection, write) {
   const ds = TBL_SOURCE[collection] || 'main';
@@ -67,7 +79,7 @@ const ASSET_URLS = {
 const PAGE_SIZE = 50;
 const ACH_BATCH_SIZE = 40;     // FIDE IDs per /api/chess-results batch request
 const ACH_BATCH_PARALLEL = 6;  // requests in flight at once
-const GOT_PARALLEL = 10;
+const GOT_PARALLEL = 4;       // ratings.fide.com answers only a few requests at a time
 const STATUS_LABEL = { 1: 'Active', 2: 'Expired', 3: 'Upcoming', 5: 'Pause' };
 const MON_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MON_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -78,9 +90,11 @@ function esc(value) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
+// NocoBase errors come as { errors: [{ message }] }; the proxies send { error }.
 function errMsg(error, fallback) {
   const d = error && error.response && error.response.data;
-  return (d && (d.error || d.message)) || (error && error.message) || fallback;
+  const nb = d && Array.isArray(d.errors) && d.errors[0] && d.errors[0].message;
+  return nb || (d && (d.error || d.message)) || (error && error.message) || fallback;
 }
 
 // ── Palette + components — blue / slate theme ──
@@ -269,15 +283,20 @@ const proxyGet = (path, params) => extRequest('get', PROXY_BASE + path, params);
 
 // ── Database (NocoBase data sources, see TBL_SOURCE) ─────────────────────────────────────────────────
 async function fetchAll(collection, params) {
+  // Page 1 tells us the page count; the remaining pages are fetched in parallel (4 at a time).
   const pageSize = 500;
-  const out = [];
-  for (let page = 1; page <= 100; page++) {
+  const get = async page => {
     const res = await ctx.api.request({ url: collection + ':list', method: 'get', headers: dbHeaders(collection, false), params: { ...params, page, pageSize } });
-    const rows = (res && res.data && res.data.data) || [];
-    out.push(...rows);
-    const totalPage = res && res.data && res.data.meta && Number(res.data.meta.totalPage);
-    if (!totalPage || page >= totalPage || rows.length < pageSize) break;
-  }
+    return { rows: (res && res.data && res.data.data) || [], totalPage: res && res.data && res.data.meta && Number(res.data.meta.totalPage) };
+  };
+  const first = await get(1);
+  const out = first.rows.slice();
+  if (!first.totalPage || first.totalPage <= 1 || first.rows.length < pageSize) return out;
+  const pages = [];
+  for (let page = 2; page <= Math.min(first.totalPage, 100); page++) pages.push(page);
+  const results = new Map();
+  await runPool(pages, 4, async page => { results.set(page, (await get(page)).rows); });
+  pages.forEach(page => out.push(...(results.get(page) || [])));
   return out;
 }
 
@@ -289,6 +308,10 @@ async function dbCreate(collection, values) {
 async function dbUpdate(collection, id, values) {
   const res = await ctx.api.request({ url: collection + ':update', method: 'post', headers: dbHeaders(collection, true), params: { filterByTk: id }, data: values });
   return res && res.data && res.data.data;
+}
+
+async function dbDestroy(collection, id) {
+  await ctx.api.request({ url: collection + ':destroy', method: 'post', headers: dbHeaders(collection, true), params: { filterByTk: id } });
 }
 
 function ymdOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
@@ -372,6 +395,7 @@ ctx.element.innerHTML =
   + '#csa tbody tr:hover td{background:#F8FAFC;}'
   + '#csa .csa-link{font-weight:600;color:' + C.ink + ';cursor:pointer;white-space:nowrap;}'
   + '#csa .csa-link:hover{color:' + C.blue + ';text-decoration:underline;}'
+  + '#csaTable_prog .csa-link{white-space:normal;}' // Student Progress: long names wrap in the fixed-width Player column
   + '#csa a.csa-t{color:' + C.ink + ';text-decoration:none;}'
   + '#csa a.csa-t:hover{color:' + C.blue + ';text-decoration:underline;}'
   + '#csa th[data-a="sort"]{cursor:pointer;user-select:none;}'
@@ -383,27 +407,59 @@ ctx.element.innerHTML =
   // Tabs + player count
   + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
   + '<div id="csaTabs" style="' + SEG + '"></div><div style="flex:1;"></div>'
+  + '<div id="csaMine" title="You are an assigned person, so only the students assigned to you are shown" style="display:none;align-items:center;gap:8px;padding:7px 14px;border-radius:10px;background:#ECFDF5;color:#047857;font-size:12.5px;font-weight:600;"></div>'
   + '<div style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:10px;background:' + C.blueLt + ';color:' + C.blueDk + ';font-size:12.5px;font-weight:600;">' + icon('users', 15) + 'Players <span id="csaPlayers" style="font-weight:700;">—</span></div>'
   + '</div>'
   // Panels
   + '<div id="csaPanel_ach">' + dataPanelHtml('ach', {
     title: 'Achievers',
-    sub: 'Tournament results for the selected month. “Fetch from API” adds finished chess-results tournaments not saved yet.',
+    sub: 'Results still to follow up (no status yet, or Pending) for the selected month. Once saved with another status a result leaves this list — Consent Received ones move to Create Poster. “Fetch from API” adds finished chess-results tournaments not saved yet.',
     months: monthOptions(2026, true),
-    extra: '<div id="csaFilter_ach" style="' + SEG + '"></div>',
+    extra: '<div id="csaFilter_ach" style="' + SEG + '"></div>'
+      + '<select id="csaSub_ach" data-c="ach-sub" title="Subscription active in the tournament month" style="' + INP + 'min-width:130px;cursor:pointer;"></select>'
+      + '<select id="csaFu_ach" data-c="ach-fu" title="Follow-up status" style="' + INP + 'min-width:160px;cursor:pointer;"></select>',
     searchPh: 'Search player, FIDE ID, tournament',
-    minWidth: 1060,
+    minWidth: 1000,
   }) + '</div>'
   + '<div id="csaPanel_got" style="display:none;">' + dataPanelHtml('got', {
     title: 'Got Rating',
     sub: 'Players who received their first FIDE rating in the selected month. “Fetch from API” checks players active that month with no rating saved yet; “Fetch all ratings” saves every player’s first rating.',
     months: monthOptions(2025, true),
+    extra: '<select id="csaFilter_got" data-c="gstatus" title="Registration status" style="' + INP + 'min-width:150px;cursor:pointer;"></select>'
+      + '<select id="csaFu_got" data-c="got-fu" title="Follow-up status" style="' + INP + 'min-width:160px;cursor:pointer;"></select>',
     searchPh: 'Search player, FIDE ID, mobile',
     buttons: '<button data-a="fetch-log" title="Status of the last fetch, player by player" style="' + GHOST + 'min-height:36px;">' + icon('info', 14) + 'Fetch log</button>'
       + '<button id="csaFetchAll_got" data-a="fetch-all" title="Save the first FIDE rating of every player not rated yet" style="' + GHOST + 'min-height:36px;color:' + C.blue + ';">' + icon('star', 14) + 'Fetch all ratings</button>',
     minWidth: 1000,
   }) + '</div>'
+  + '<div id="csaPanel_fu" style="display:none;">'
+  + panelHead('Create Poster', 'Followed-up results (all months) by status — opens on “Consent Received”. Who called and when, the comment and the consent pictures. Make the poster from here.')
+  + '<div style="' + CARD + 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;margin-bottom:10px;">'
+  + '<select data-c="fu-status" title="Follow-up status" style="' + INP + 'min-width:200px;cursor:pointer;font-weight:600;"></select>'
+  + searchBox('fu', 'Search player, mobile, tournament, assigned to')
+  + '<div style="flex:1;"></div>'
+  + '<button data-a="refresh" data-scope="fu" title="Reload" style="' + GHOST + 'min-height:36px;">' + icon('refresh', 14) + 'Reload</button>'
+  + '</div>'
+  + '<div id="csaStatus_fu" style="min-height:18px;margin:0 2px 10px;font-size:12.5px;color:' + C.sub + ';"></div>'
+  + '<div style="' + CARD + 'overflow-x:auto;"><table id="csaTable_fu" style="min-width:1180px;"></table></div>'
+  + '<div id="csaPager_fu"></div>'
+  + '</div>'
   + '<div id="csaPanel_stats" style="display:none;"></div>'
+  + '<div id="csaPanel_prog" style="display:none;">'
+  + panelHead('Student Progress', 'FIDE ratings at each student’s first subscription start vs. their last subscription end (this month’s rating if the subscription is still running). Registrations with status 4 or 6 are left out.')
+  + '<div style="' + CARD + 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;margin-bottom:10px;">'
+  + searchBox('prog', 'Filter by mobile number or name')
+  + '<select data-c="prog-status" title="Status of the latest registration" style="' + INP + 'min-width:150px;cursor:pointer;"></select>'
+  + '<select data-c="prog-duration" title="Time between first start and last end" style="' + INP + 'min-width:170px;cursor:pointer;"></select>'
+  + '<div style="flex:1;"></div>'
+  + '<button data-a="refresh" data-scope="prog" title="Reload" style="' + GHOST + 'min-height:36px;">' + icon('refresh', 14) + 'Reload</button>'
+  + '</div>'
+  + '<div id="csaProg_prog" style="display:none;height:4px;border-radius:999px;background:' + C.line + ';overflow:hidden;margin:0 2px 8px;"><div style="height:100%;width:0;background:' + C.blue + ';border-radius:999px;transition:width .25s;"></div></div>'
+  + '<div id="csaStatus_prog" style="min-height:18px;margin:0 2px 10px;font-size:12.5px;color:' + C.sub + ';"></div>'
+  + '<div id="csaKpis_prog" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;"></div>'
+  + '<div style="' + CARD + 'overflow:hidden;"><table id="csaTable_prog" style="width:100%;table-layout:fixed;"></table></div>'
+  + '<div id="csaPager_prog"></div>'
+  + '</div>'
   + '<div id="csaPanel_consent" style="display:none;">'
   + panelHead('Consent', 'Players who gave consent for posters and publicity (' + TBL.consent + '). The Consent ticks in Achievers and Got Rating come from here.')
   + '<div style="' + CARD + 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;margin-bottom:10px;">'
@@ -413,7 +469,7 @@ ctx.element.innerHTML =
   + '<button data-a="consent-add" style="' + BTN(C.blue) + 'min-height:36px;">' + icon('checkCircle', 14) + 'Add consent</button>'
   + '</div>'
   + '<div id="csaStatus_consent" style="min-height:18px;margin:0 2px 10px;font-size:12.5px;color:' + C.sub + ';"></div>'
-  + '<div style="' + CARD + 'overflow-x:auto;"><table id="csaTable_consent" style="min-width:760px;"></table></div>'
+  + '<div style="' + CARD + 'overflow-x:auto;"><table id="csaTable_consent" style="min-width:900px;"></table></div>'
   + '<div id="csaPager_consent"></div>'
   + '</div>'
   + '<div id="csaPanel_custom" style="display:none;"></div>'
@@ -431,7 +487,9 @@ const Q = id => ctx.element.querySelector('#' + id);
 const TABS = [
   { key: 'ach', label: 'Achievers', icon: 'trophy', badge: true },
   { key: 'got', label: 'Got Rating', icon: 'star', badge: true },
+  { key: 'fu', label: 'Create Poster', icon: 'award', badge: true },
   { key: 'stats', label: 'Rating Stats', icon: 'barChart' },
+  { key: 'prog', label: 'Student Progress', icon: 'trendingUp' },
   { key: 'consent', label: 'Consent', icon: 'checkCircle', badge: true },
   { key: 'custom', label: 'Custom Poster', icon: 'image' },
 ];
@@ -447,9 +505,16 @@ const state = {
   consentFide: new Set(),
   consentMobile: new Set(), // last 10 digits
   consentMissing: false, // collection not found in the data source (list -> 404)
-  ach: { month: currentMonthKey(), filter: 'all', search: '', rows: [], loaded: false, page: 0, sort: { key: null, dir: 1 }, seq: 0, busy: false, cache: {} },
-  got: { month: currentMonthKey(), search: '', rows: [], loaded: false, page: 0, sort: { key: null, dir: 1 }, seq: 0, busy: false, cache: {} },
+  // rcTried: 'tournament_id|fide_id' already looked up for a missing rating change this visit
+  // sub: subscription active in the tournament month; fuFilter: follow-up status
+  ach: { month: currentMonthKey(), filter: 'all', sub: 'all', fuFilter: 'all', search: '', rows: [], loaded: false, page: 0, sort: { key: null, dir: 1 }, seq: 0, busy: false, cache: {}, rcTried: new Set(), statusLine: null },
+  got: { month: currentMonthKey(), status: 'active', fuFilter: 'all', search: '', rows: [], loaded: false, page: 0, sort: { key: null, dir: 1 }, seq: 0, busy: false, cache: {} },
+  // Create Poster page: followed-up achievements; status = the filter (an option's stored value or
+  // 'all'), null until the field setup is known, then "Consent Received"
+  fu: { loaded: false, loading: false, error: '', status: null, rows: [], search: '', page: 0, sort: { key: 'at', dir: -1 } },
   stats: { loaded: false, loading: false, rows: [], monthMap: {}, periods: [], period: '' },
+  // Student Progress: rows from view_csoc_registration_new; hist = fide_id -> rating history
+  prog: { loaded: false, loading: false, error: '', rows: [], search: '', status: 1, duration: 'all', page: 0, sort: { key: null, dir: 1 }, hist: new Map(), histVer: 0, running: false, blockedUntil: 0, statusCounts: null, visKey: '', visRows: [] },
   poster: { modal: null, custom: null },
   modal: null,
 };
@@ -473,10 +538,12 @@ async function fetchPlayerList(statuses) {
     }),
   ]);
   const latest = new Map();
+  const periods = new Map(); // mobile -> every subscription [start, end], for "active in a month"
   regs.forEach(r => {
     const mobile = String(r.mobile_number || '').trim();
     if (!mobile) return;
     const end = normEndDate(r.subscription_end_date), start = normEndDate(r.subscription_start_date);
+    if (start) periods.set(mobile, (periods.get(mobile) || []).concat({ start, end }));
     const cur = latest.get(mobile);
     if (!cur || end > cur.end || (end === cur.end && start > cur.start)) latest.set(mobile, { end, start, status: Number(r.status) || 1 });
   });
@@ -494,17 +561,20 @@ async function fetchPlayerList(statuses) {
       subscription_start_date: reg.start,
       subscription_end_date: reg.end,
       status: reg.status,
+      periods: periods.get(mobile) || [],
     });
   });
   return players.filter(p => p.fide_id && p.fide_id !== '0');
 }
 
+// state.players = active (status 1) students, used by the fetches and the header count;
+// state.playerMap covers statuses 1, 2, 3 and 5 so every table can show / filter by status.
 function loadPlayers(force) {
   if (state.playersPromise && !force) return state.playersPromise;
   Q('csaPlayers').textContent = '…';
-  state.playersPromise = fetchPlayerList([1]).then(players => {
-    state.players = players;
-    state.playerMap = new Map(state.players.map(p => [p.fide_id, p]));
+  state.playersPromise = fetchPlayerList([1, 2, 3, 5]).then(players => {
+    state.players = players.filter(p => p.status === 1);
+    state.playerMap = new Map(players.map(p => [p.fide_id, p]));
     Q('csaPlayers').textContent = fmtNum(state.players.length);
     // Status / mobile columns come from the player list.
     renderAch();
@@ -519,9 +589,102 @@ function loadPlayers(force) {
 
 function playerById(fideId) { return state.playerMap.get(String(fideId || '').trim()) || null; }
 
+// Active in month "2026-Aug" = any of the player's subscriptions overlaps that month:
+// subscription_start_date <= last day of the month and subscription_end_date >= its first day.
+// Used by Achievers, Got Rating and Rating Stats, so their counts agree.
+function activeInMonth(fideId, monthKey) {
+  const p = playerById(fideId);
+  if (!p || MON_ABBR.indexOf(String(monthKey || '').split('-')[1]) < 0) return false;
+  const [from, to] = monthRange(monthKey);
+  return (p.periods || []).some(x => x.start <= to && (!x.end || x.end >= from));
+}
+// "2026-08-15" -> "2026-Aug"
+function ymdToMonthKey(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})/);
+  return m ? m[1] + '-' + MON_ABBR[Number(m[2]) - 1] : '';
+}
+function activeChip(yes) {
+  return yes
+    ? '<span style="' + PILL('#ECFDF5', '#047857', '#A7F3D0') + '">' + dot('#10B981') + 'Active</span>'
+    : '<span style="' + PILL('#F1F5F9', C.sub, C.line) + '">' + dot(C.mute) + 'Inactive</span>';
+}
+
+// Mobile match key: last 10 digits (country code ignored); shorter numbers as they are
+function assigneeKey(v) { const d = String(v || '').replace(/\D/g, ''); return d.length >= 10 ? d.slice(-10) : d; }
+
+// Assigned person per student: cc_assignment_relationship (mobile_number -> resource_id)
+// -> cc_admin_users (id = resource_id) -> name. Keyed by the last 10 digits of the mobile.
+async function loadAssignees() {
+  try {
+    const rels = await fetchAll(TBL.assignment, {});
+    const byMobile = new Map();
+    // Several rows for one mobile: the newest (highest id) wins
+    rels.slice().sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0)).forEach(r => {
+      const m = assigneeKey(r.mobile_number);
+      if (m && r.resource_id !== null && r.resource_id !== undefined && r.resource_id !== '') byMobile.set(m, String(r.resource_id));
+    });
+    const ids = [...new Set(byMobile.values())];
+    const admins = ids.length ? await fetchAll(TBL.adminUsers, { filter: JSON.stringify({ id: { $in: ids.map(id => (/^\d+$/.test(id) ? Number(id) : id)) } }) }) : [];
+    const adminName = u => String(u.name || u.full_name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.nickname || u.email || '').trim();
+    const nameOf = new Map(admins.map(u => [String(u.id), adminName(u)]));
+    state.assignee = new Map();
+    byMobile.forEach((rid, m) => { const n = nameOf.get(rid); if (n) state.assignee.set(m, n); });
+
+    // Signed-in user who is one of the assigned people (same name / username / email):
+    // every tab then shows only their students. Everyone else sees all students.
+    const me = await currentUser();
+    const norm = v => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const myKeys = new Set([me.nickname, me.username, me.email, me.name].map(norm).filter(Boolean));
+    const mine = admins.filter(u => [adminName(u), u.username, u.nickname, u.email].map(norm).some(k => k && myKeys.has(k)));
+    if (mine.length) {
+      const ids = new Set(mine.map(u => String(u.id)));
+      state.mine = new Set();
+      byMobile.forEach((rid, m) => { if (ids.has(rid)) state.mine.add(m); });
+      state.mineName = adminName(mine[0]);
+      applyMine();
+    }
+  } catch (e) {
+    console.error('[csa] assignee lookup failed (' + TBL.assignment + ' / ' + TBL.adminUsers + ')', e);
+    state.assigneeError = errMsg(e, 'unknown error');
+  }
+  renderAch();
+  renderGot();
+  renderFollowups();
+  if (state.tab === 'prog') renderProg();
+}
+
+// Only this user's students (state.mine = their mobile keys), or everyone when state.mine is unset
+function mineOk(mobile) { return !state.mine || state.mine.has(assigneeKey(mobile)); }
+
+// Called once the "my students" set is known: header note + every tab re-filtered.
+function applyMine() {
+  const el = Q('csaMine');
+  el.style.display = 'flex';
+  el.innerHTML = icon('user', 14) + 'My students only · ' + esc(state.mineName) + ' <span style="font-weight:700;">' + fmtNum(state.mine.size) + '</span>';
+  const p = state.prog;
+  if (p.loaded) { progStatusCounts(); p.visKey = ''; }
+  if (state.stats.loaded) { state.stats.loaded = false; if (state.tab === 'stats') loadStats(); }
+  renderConsent();
+  renderFollowups();
+  renderTabs();
+  if (state.tab === 'prog') renderProg();
+}
+function assigneeOf(mobile) { return (state.assignee && state.assignee.get(assigneeKey(mobile))) || ''; }
+function assigneeCell(mobile) {
+  const n = assigneeOf(mobile);
+  if (n) return esc(n);
+  return '<span style="' + MUTED + '"' + (state.assigneeError ? ' title="' + esc('Could not load: ' + state.assigneeError) + '"' : '') + '>'
+    + (state.assignee || state.assigneeError ? '—' : '…') + '</span>';
+}
+
 function mobileKey(value) {
   const digits = String(value || '').replace(/\D/g, '');
   return digits.length >= 10 ? digits.slice(-10) : '';
+}
+
+// Names compared as word sets, so "B, Bob" (chess-results / FIDE) matches "Bob B".
+function nameWords(v) {
+  return String(v || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
 }
 
 function hasConsent(fid, mobile) {
@@ -534,6 +697,110 @@ function hasConsent(fid, mobile) {
 // table doesn't have would fail the whole request.
 const isTrue = v => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
 
+// ── Field setup read from NocoBase (collections/<name>/fields:list) ──
+// achStatus: options of cc_csoc_achievements.status (single select) — value as stored + label.
+// consentImages: how cc_csoc_cx_consent.images is defined —
+//   'assoc' (Attachment field: send attachment ids, list with appends=images), 'json', 'text',
+//   'none' (no such field), null (couldn't tell).
+const ACH_STATUS_DEFAULT = ['Follow up', 'Consent Received', 'RNR', 'Not Eligible', 'Pending', 'Consent Declined'];
+// gotStatus / gotFields: the same for cc_csoc_got_rating.status (Got Rating follow-up).
+const GOT_STATUS_DEFAULT = ['Pending', 'Consent Received', 'Consent Declined', 'RNR'];
+const meta = {
+  achStatus: ACH_STATUS_DEFAULT.map(l => ({ value: l, label: l })), achFields: null,
+  gotStatus: GOT_STATUS_DEFAULT.map(l => ({ value: l, label: l })), gotFields: null, consentImages: null,
+};
+async function collectionFields(name) {
+  const res = await ctx.api.request({ url: 'collections/' + name + '/fields:list', method: 'get', params: { paginate: false } });
+  return (res && res.data && res.data.data) || [];
+}
+// Options of a single-select field ({ value, label }), or null
+function selectOptions(fields, name) {
+  const st = fields.find(x => x.name === name);
+  const en = st && st.uiSchema && st.uiSchema.enum;
+  return Array.isArray(en) && en.length ? en.map(o => ({ value: String(o.value), label: String(o.label || o.value) })) : null;
+}
+const metaPromise = (async () => {
+  try {
+    const f = await collectionFields(TBL.ach);
+    meta.achFields = new Set(f.map(x => x.name));
+    meta.achStatus = selectOptions(f, 'status') || meta.achStatus;
+  } catch (e) { console.warn('[csa] could not read ' + TBL.ach + ' fields', e); }
+  try {
+    const f = await collectionFields(TBL.got);
+    meta.gotFields = new Set(f.map(x => x.name));
+    meta.gotStatus = selectOptions(f, 'status') || meta.gotStatus;
+  } catch (e) { console.warn('[csa] could not read ' + TBL.got + ' fields', e); }
+  try {
+    const f = await collectionFields(TBL.consent);
+    const im = f.find(x => x.name === 'images');
+    meta.consentImages = !im ? 'none'
+      : ['belongsToMany', 'hasMany', 'belongsTo'].includes(im.type) || im.interface === 'attachment' ? 'assoc'
+      : /^jsonb?$/.test(im.type) ? 'json' : 'text';
+  } catch (e) { console.warn('[csa] could not read ' + TBL.consent + ' fields', e); }
+})();
+
+// Value for cc_csoc_cx_consent.images in the shape its field type expects
+function consentImagesValue(images) {
+  if (meta.consentImages === 'assoc') return images.map(im => im.id).filter(id => id !== undefined && id !== null);
+  if (meta.consentImages === 'json') return images.map(im => ({ id: im.id, url: im.url, name: im.name }));
+  return JSON.stringify(images.map(im => ({ id: im.id, url: im.url, name: im.name })));
+}
+
+// Creates / updates a consent record. If `images` is an Attachment field we didn't know about
+// (Postgres "bigint" error on a text value), switches to attachment ids and retries once.
+// Returns a warning when the images could not be stored, else ''.
+async function saveConsentRecord(id, values, images) {
+  const write = () => (id ? dbUpdate(TBL.consent, id, values) : dbCreate(TBL.consent, values));
+  let saved;
+  try {
+    saved = await write();
+  } catch (e) {
+    if (!images || meta.consentImages === 'assoc' || !/bigint|integer/i.test(errMsg(e, ''))) throw e;
+    meta.consentImages = 'assoc';
+    values.images = consentImagesValue(images);
+    saved = await write();
+  }
+  const rec = Array.isArray(saved) ? saved[0] : saved;
+  // NocoBase drops fields the collection doesn't have (association fields aren't echoed back)
+  if (values.images !== undefined && meta.consentImages !== 'assoc' && rec && !('images' in rec)) {
+    return 'Consent saved, but the images were not: ' + TBL.consent + ' needs an "images" field (Attachment or Long text).';
+  }
+  return '';
+}
+
+// The signed-in NocoBase user ({ id, nickname, username, email, … }); {} if unknown
+let userPromise = null;
+function currentUser() {
+  if (!userPromise) {
+    userPromise = (async () => {
+      try {
+        const u = ctx.user || (ctx.currentUser && ctx.currentUser.data) || (ctx.auth && ctx.auth.user);
+        if (u && (u.nickname || u.username || u.email)) return u;
+      } catch (e) { /* not exposed */ }
+      const res = await ctx.api.request({ url: 'auth:check', method: 'get' });
+      return (res && res.data && res.data.data) || {};
+    })().catch(e => { console.warn('[csa] current user lookup failed', e); userPromise = null; return {}; });
+  }
+  return userPromise;
+}
+// Name for connected_by
+async function currentUserName() {
+  const u = await currentUser();
+  return String(u.nickname || u.username || u.email || u.phone || (u.id ? 'user ' + u.id : '') || 'unknown').trim();
+}
+
+// Consent images: the files are NocoBase attachments (attachments:create); the record keeps either
+// the attachments themselves (Attachment field) or JSON [{ id, url, name }] (text / JSON field).
+function parseImages(v) {
+  let list = v;
+  if (!Array.isArray(list)) {
+    if (!list) return [];
+    try { list = JSON.parse(list); } catch (e) { return []; }
+    if (!Array.isArray(list)) return [];
+  }
+  return list.filter(x => x && x.url).map(x => ({ id: x.id, url: x.url, name: x.name || x.filename || ((x.title || 'image') + (x.extname || '')) }));
+}
+
 // cc_csoc_cx_consent record -> row. A missing is_consent column counts as consent given.
 function consentRowFromDb(rec) {
   return {
@@ -543,12 +810,53 @@ function consentRowFromDb(rec) {
     mobile_number: rec.mobile_number ? String(rec.mobile_number) : '',
     yes: rec.is_consent === undefined ? true : isTrue(rec.is_consent),
     added: normEndDate(rec.createdAt || rec.created_at || ''),
+    images: parseImages(rec.images),
+    hasImagesField: 'images' in rec,
   };
+}
+
+// Text -> UTF-8 bytes without TextEncoder (may be missing in the sandbox)
+function strBytes(s) {
+  const bin = unescape(encodeURIComponent(s));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+// Uploads one file to NocoBase storage -> { id, url, name }. Uses FormData when the sandbox has
+// it, else builds the multipart body by hand.
+async function uploadImage(file) {
+  let FD = null;
+  try { FD = typeof FormData === 'function' ? FormData : null; } catch (e) { FD = null; }
+  let data, headers = {};
+  if (FD) {
+    data = new FD();
+    data.append('file', file, file.name);
+  } else {
+    const boundary = '----csa' + Date.now().toString(16) + Math.random().toString(16).slice(2);
+    const head = strBytes('--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="' + String(file.name || 'image').replace(/["\r\n]/g, '')
+      + '"\r\nContent-Type: ' + (file.type || 'application/octet-stream') + '\r\n\r\n');
+    const body = new Uint8Array(await file.arrayBuffer());
+    const tail = strBytes('\r\n--' + boundary + '--\r\n');
+    data = new Uint8Array(head.length + body.length + tail.length);
+    data.set(head, 0); data.set(body, head.length); data.set(tail, head.length + body.length);
+    headers['Content-Type'] = 'multipart/form-data; boundary=' + boundary;
+  }
+  const res = await ctx.api.request({ url: 'attachments:create', method: 'post', data, headers });
+  const a = res && res.data && res.data.data;
+  if (!a || !a.url) throw new Error('upload returned no file');
+  return { id: a.id, url: a.url, name: a.filename || ((a.title || 'image') + (a.extname || '')) };
+}
+
+function imageThumb(im, attrs, size) {
+  const s = size || 64;
+  return '<img src="' + esc(im.url || im.preview) + '" alt="" ' + (attrs || '') + ' style="width:' + s + 'px;height:' + s + 'px;object-fit:cover;border-radius:8px;border:1px solid ' + C.line + ';background:' + C.card + ';display:block;">';
 }
 
 function loadConsent(note) {
   setStatus('consent', 'Loading…');
-  return fetchAll(TBL.consent, {}).then(recs => {
+  // An Attachment `images` field is only returned when asked for (appends)
+  return metaPromise.then(() => fetchAll(TBL.consent, meta.consentImages === 'assoc' ? { appends: ['images'] } : {})).then(recs => {
     const rows = recs.map(consentRowFromDb);
     const fide = new Set(), mobile = new Set();
     rows.filter(r => r.yes).forEach(r => {
@@ -561,10 +869,14 @@ function loadConsent(note) {
     state.consentFide = fide;
     state.consentMobile = mobile;
     state.consentMissing = false;
+    // false = records exist but none has an `images` column (field not added yet); null = can't tell
+    state.consentImagesField = meta.consentImages === 'none' ? false : meta.consentImages ? true
+      : recs.length ? recs.some(r => 'images' in r) : null;
     setStatus('consent', (note ? note + ' · ' : '') + rows.length + ' records, ' + rows.filter(r => r.yes).length + ' with consent', note ? 'ok' : '');
     renderAch();
     renderGot();
     renderConsent();
+    renderFollowups();
     renderTabs();
   }).catch(e => {
     state.consent.loaded = true;
@@ -623,10 +935,10 @@ function sortRows(rows, getter, dir) {
 function thCell(scope, col) {
   const st = state[scope].sort;
   const align = col.num ? 'text-align:right;' : col.center ? 'text-align:center;' : '';
-  if (!col.sort) return '<th style="' + TH + align + (col.w ? 'width:' + col.w + ';' : '') + '">' + col.label + '</th>';
+  if (!col.sort) return '<th style="' + TH + align + (col.w ? 'width:' + col.w + ';' : '') + (col.pad ? 'padding:' + col.pad + ';' : '') + '">' + col.label + '</th>';
   const on = st.key === col.sort;
   const arrow = on ? (st.dir > 0 ? '▲' : '▼') : '↕';
-  return '<th data-a="sort" data-scope="' + scope + '" data-key="' + col.sort + '" style="' + TH + align + (on ? 'color:' + C.blue + ';' : '') + '">'
+  return '<th data-a="sort" data-scope="' + scope + '" data-key="' + col.sort + '" style="' + TH + align + (col.w ? 'width:' + col.w + ';' : '') + (col.pad ? 'padding:' + col.pad + ';' : '') + (on ? 'color:' + C.blue + ';' : '') + '">'
     + col.label + ' <span style="font-size:9px;' + (on ? '' : 'opacity:.45;') + '">' + arrow + '</span></th>';
 }
 
@@ -646,27 +958,21 @@ function emptyRow(cols, text) {
   return '<tr><td colspan="' + cols + '" style="' + TD + 'color:' + C.sub + ';text-align:center;padding:44px 16px;">' + text + '</td></tr>';
 }
 
-function playerCell(fid, name, mobile) {
-  return '<span class="csa-link" data-a="player" data-fid="' + esc(fid) + '" data-name="' + esc(name) + '" data-mobile="' + esc(mobile) + '">' + esc(name || '—') + '</span>';
+// achId: an Achievers row — the pop-up then gets an Achievement (follow-up) tab and a Poster button;
+// gotI: a Got Rating row index — the pop-up gets a Poster button.
+function playerCell(fid, name, mobile, action, achId, gotI) {
+  return '<span class="csa-link" data-a="' + (action || 'player') + '" data-fid="' + esc(fid) + '" data-name="' + esc(name) + '" data-mobile="' + esc(mobile) + '"'
+    + (achId !== undefined && achId !== null ? ' data-ach="' + esc(achId) + '"' : '')
+    + (gotI !== undefined && gotI !== null ? ' data-got="' + esc(gotI) + '"' : '') + '>' + esc(name || '—') + '</span>';
 }
 
-// Read-only consent box: green tick = consent given, red cross = not given / no record.
-function consentCell(fid, name, mobile) {
-  const yes = hasConsent(fid, mobile);
-  const title = state.consentMissing ? 'Consent table (' + TBL.consent + ') is not set up in NocoBase'
-    : yes ? 'Consent given' : 'Consent not given';
-  return '<span class="csa-consent" data-yes="' + (yes ? 1 : 0) + '" title="' + esc(title) + '" style="display:inline-flex;align-items:center;justify-content:center;'
-    + 'width:18px;height:18px;border-radius:4px;vertical-align:middle;color:#fff;'
-    + (yes ? 'background:' + C.green + ';border:1.5px solid ' + C.green + ';' : 'background:#FEF2F2;border:1.5px solid ' + C.red + ';color:' + C.red + ';') + '">'
-    + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + (yes ? '<path d="M20 6 9 17l-5-5"/>' : '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>') + '</svg></span>';
-}
 
 function renderTabs() {
   const counts = {
-    ach: state.ach.loaded ? state.ach.rows.length : null,
-    got: state.got.loaded ? state.got.rows.length : null,
-    consent: state.consent.loaded ? state.consent.rows.filter(r => r.yes).length : null,
+    ach: state.ach.loaded ? achBase().length : null,
+    fu: state.fu.loaded ? fuVisibleRows().length : null,
+    got: state.got.loaded ? gotBase().length : null,
+    consent: state.consent.loaded ? state.consent.rows.filter(r => r.yes && mineOk(r.mobile_number)).length : null,
   };
   Q('csaTabs').innerHTML = TABS.map(t => {
     const on = state.tab === t.key;
@@ -683,8 +989,10 @@ function switchTab(tab) {
   state.tab = tab;
   TABS.forEach(t => { Q('csaPanel_' + t.key).style.display = t.key === tab ? 'block' : 'none'; });
   renderTabs();
+  if (tab === 'fu') { if (!state.fu.loaded && !state.fu.loading) loadFollowups(); else renderFollowups(); }
   if (tab === 'stats' && !state.stats.loaded && !state.stats.loading) loadStats();
   if (tab === 'stats') renderStats();
+  if (tab === 'prog') { if (!state.prog.loaded && !state.prog.loading) loadProgress(); else renderProg(); }
   if (tab === 'consent') renderConsent();
   if (tab === 'custom') renderCustom();
 }
@@ -693,6 +1001,8 @@ function renderScope(scope) {
   if (scope === 'ach') renderAch();
   else if (scope === 'got') renderGot();
   else if (scope === 'consent') renderConsent();
+  else if (scope === 'prog') renderProg();
+  else if (scope === 'fu') renderFollowups();
 }
 
 // ── Consent tab (cc_csoc_cx_consent) ───────────────────────────────────────
@@ -700,19 +1010,26 @@ const CONSENT_SORT_GET = {
   name: r => r.player_name || '',
   fide: r => Number(r.fide_id) || null,
   yes: r => (r.yes ? 1 : 0),
+  imgs: r => r.images.length || null,
   added: r => r.added || '',
 };
 
 function renderConsent() {
   const c = state.consent;
   const s = c.search.trim().toLowerCase();
-  let rows = c.rows.filter(r => !s || [r.player_name, r.fide_id, r.mobile_number].some(v => String(v || '').toLowerCase().includes(s)));
+  let rows = c.rows.filter(r => mineOk(r.mobile_number)
+    && (!s || [r.player_name, r.fide_id, r.mobile_number].some(v => String(v || '').toLowerCase().includes(s))));
   if (c.sort.key) rows = sortRows(rows, CONSENT_SORT_GET[c.sort.key], c.sort.dir);
   const cols = [
     { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'FIDE ID', sort: 'fide' }, { label: 'Mobile' },
-    { label: 'Consent', sort: 'yes', center: true }, { label: 'Added', sort: 'added' },
+    { label: 'Consent', sort: 'yes', center: true }, { label: 'Images', sort: 'imgs' }, { label: 'Added', sort: 'added' }, { label: '', w: '1%' },
   ];
   const thead = '<thead><tr>' + cols.map(col => thCell('consent', col)).join('') + '</tr></thead>';
+  // Up to 3 thumbnails + count; click opens the viewer
+  const imgsCell = r => !r.images.length ? '<span style="' + MUTED + '">—</span>'
+    : '<button data-a="consent-imgs" data-id="' + esc(r.id) + '" title="View / download images" style="display:inline-flex;align-items:center;gap:6px;padding:3px;border:1px solid ' + C.line + ';border-radius:10px;background:#fff;cursor:pointer;">'
+      + r.images.slice(0, 3).map(im => imageThumb(im, '', 30)).join('')
+      + '<span style="font-size:12px;font-weight:700;color:' + C.blue + ';padding:0 6px 0 2px;">' + r.images.length + '</span></button>';
   let body;
   if (!c.loaded) body = emptyRow(cols.length, 'Loading consent…');
   else if (!rows.length) body = emptyRow(cols.length, c.rows.length ? 'No records match this search.' : 'No consent records yet. Use “Add consent” to add one.');
@@ -727,60 +1044,143 @@ function renderConsent() {
       + '<td style="' + TD + 'text-align:center;">' + (r.yes
         ? '<span style="' + PILL('#ECFDF5', '#047857', '#A7F3D0') + '">' + icon('checkCircle', 12) + 'Yes</span>'
         : '<span style="' + PILL('#FEF2F2', '#B91C1C', '#FECACA') + '">' + icon('x', 12) + 'No</span>') + '</td>'
+      + '<td style="' + TD + '">' + imgsCell(r) + '</td>'
       + '<td style="' + TD + 'color:' + C.sub + ';white-space:nowrap;">' + esc(fmtYMD(r.added) || '—') + '</td>'
+      + '<td style="' + TD + '"><button data-a="consent-edit" data-id="' + esc(r.id) + '" style="' + GHOST + 'padding:5px 11px;font-size:12px;color:' + C.blue + ';">Edit</button></td>'
       + '</tr>').join('');
   }
   Q('csaTable_consent').innerHTML = thead + '<tbody>' + body + '</tbody>';
   Q('csaPager_consent').innerHTML = c.loaded ? pagerHtml('consent', c.page, rows.length) : '';
 }
 
-function openConsentForm() {
-  const field = (id, label, placeholder, extra) => '<div style="margin-bottom:12px;"><label style="' + LBL + '">' + label + '</label>'
-    + '<input id="' + id + '" placeholder="' + placeholder + '" ' + (extra || '') + ' style="' + INP + 'width:100%;"></div>';
-  openModal('consent', 480, modalShell('checkCircle', 'Add consent', 'Saved to ' + esc(TBL.consent),
-    field('csaCfFide', 'FIDE ID', 'e.g. 25092340', 'inputmode="numeric"')
-    + '<div id="csaCfHint" style="margin:-6px 0 12px;font-size:12px;color:' + C.sub + ';">Enter a FIDE ID to fill in a known player’s name and mobile.</div>'
-    + field('csaCfName', 'Player name', 'e.g. Magnus Carlsen')
-    + field('csaCfMobile', 'Mobile number', 'e.g. 919876543210', 'inputmode="tel"')
-    + '<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid ' + C.line + ';border-radius:10px;background:' + C.card + ';cursor:pointer;font-weight:600;">'
-    + '<input type="checkbox" id="csaCfYes" checked style="width:16px;height:16px;accent-color:' + C.green + ';"> Consent given</label>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">'
-    + '<button data-a="close" style="' + GHOST + '">Cancel</button>'
-    + '<button data-a="consent-save" style="' + BTN(C.blue) + '">Save</button></div>'));
-  Q('csaCfFide').focus();
+// Consent record for a FIDE ID (else mobile number), if any.
+function findConsent(fid, mobile) {
+  const f = String(fid || '').trim(), m = mobileKey(mobile);
+  return state.consent.rows.find(r => (f && r.fide_id === f) || (!f && m && mobileKey(r.mobile_number) === m)) || null;
 }
 
-// Typing a known FIDE ID fills in the player's name / mobile (only empty fields).
+// p: { id } to edit a record, or { fid, name, mobile } from a table row; empty = new record.
+function openConsentForm(p) {
+  p = p || {};
+  const rec = p.id !== undefined ? state.consent.rows.find(r => String(r.id) === String(p.id)) : findConsent(p.fid, p.mobile);
+  const fid = rec ? rec.fide_id : String(p.fid || '');
+  const name = (rec && rec.player_name) || p.name || '';
+  const mobile = (rec && rec.mobile_number) || p.mobile || '';
+  const player = playerById(fid);
+  const field = (id, label, placeholder, value, extra) => '<div style="margin-bottom:12px;"><label style="' + LBL + '">' + label + '</label>'
+    + '<input id="' + id + '" placeholder="' + placeholder + '" value="' + esc(value) + '" ' + (extra || '') + ' style="' + INP + 'width:100%;"></div>';
+  const sub = rec ? 'Editing the saved record' : (fid || name) ? 'No consent saved yet for this player' : 'Saved to ' + esc(TBL.consent);
+  openModal('consent', 480, modalShell('checkCircle', rec ? 'Edit consent' : 'Add consent', sub,
+    field('csaCfFide', 'FIDE ID', 'e.g. 25092340', fid, 'inputmode="numeric"')
+    + '<div id="csaCfHint" style="margin:-6px 0 12px;font-size:12px;color:' + C.sub + ';">'
+    + (player ? esc(statusLabel(player.status)) + ' · subscription ' + esc(fmtYMD(player.subscription_start_date) || '?') + ' – ' + esc(fmtYMD(player.subscription_end_date) || '?')
+      : 'Enter a FIDE ID to fill in a known player’s name and mobile.') + '</div>'
+    + field('csaCfName', 'Player name', 'e.g. Magnus Carlsen', name)
+    + field('csaCfMobile', 'Mobile number', 'e.g. 919876543210', mobile, 'inputmode="tel"')
+    + '<label style="' + LBL + '">Consent</label><div id="csaCfChoice" style="display:flex;gap:8px;"></div>'
+    + '<label style="' + LBL + 'margin-top:14px;">Images</label><div id="csaCfImgs"></div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">'
+    + '<button data-a="close" style="' + GHOST + '">Cancel</button>'
+    + '<button data-a="consent-save" style="' + BTN(C.blue) + '">Save</button></div>'),
+  { consentId: rec ? rec.id : null, yes: rec ? rec.yes : (p.yes !== undefined ? p.yes : true), images: rec ? rec.images.slice() : [], pending: [] });
+  renderConsentChoice();
+  renderCfImages();
+}
+
+// Saved images (× removes on Save) + images picked but not uploaded yet (uploaded on Save)
+function renderCfImages() {
+  const el = Q('csaCfImgs');
+  if (!el || !state.modal) return;
+  const m = state.modal;
+  const tile = (im, act, i) => '<div style="position:relative;">' + imageThumb(im, '', 72)
+    + '<button data-a="' + act + '" data-i="' + i + '" title="Remove" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:999px;border:1px solid ' + C.line2 + ';background:#fff;color:' + C.red + ';cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">' + icon('x', 11) + '</button>'
+    + (act === 'cf-pend-del' ? '<div style="position:absolute;left:4px;bottom:4px;font-size:9.5px;font-weight:700;background:' + C.blue + ';color:#fff;border-radius:4px;padding:0 4px;">NEW</div>' : '') + '</div>';
+  el.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">'
+    + m.images.map((im, i) => tile(im, 'cf-img-del', i)).join('')
+    + m.pending.map((pd, i) => tile({ url: pd.preview }, 'cf-pend-del', i)).join('')
+    + '<label style="width:72px;height:72px;border:1.5px dashed ' + C.line2 + ';border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:' + C.blue + ';font-size:11px;font-weight:600;background:' + C.card + ';">'
+    + icon('upload', 16) + 'Add<input type="file" accept="image/*" multiple data-c="cf-files" style="display:none;"></label></div>'
+    + (state.consentImagesField === false ? '<div style="margin-top:6px;font-size:12px;color:#B45309;">' + icon('alert', 12) + ' ' + esc(TBL.consent) + ' has no <b>images</b> field yet — add a Long text field named <b>images</b> so images can be saved.</div>' : '');
+  fitRootToModal();
+}
+
+// Picked files -> previews (uploaded only when the form is saved)
+async function addPendingImages(files) {
+  const m = state.modal;
+  for (const file of files) {
+    try {
+      const preview = await fileToDataUrl(file);
+      if (state.modal !== m) return;
+      m.pending.push({ file, preview });
+    } catch (e) {
+      console.error('[csa] image read failed', e);
+    }
+  }
+  renderCfImages();
+}
+
+// Big Yes / No choice in the consent form (state.modal.yes)
+function renderConsentChoice() {
+  const el = Q('csaCfChoice');
+  if (!el || !state.modal) return;
+  const opt = (v, label, ink, bg, ic) => {
+    const on = state.modal.yes === v;
+    return '<button data-a="cf-yes" data-v="' + (v ? 1 : 0) + '" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;'
+      + (on ? 'background:' + bg + ';color:' + ink + ';border:2px solid ' + ink + ';' : 'background:#fff;color:' + C.sub + ';border:2px solid ' + C.line + ';') + '">'
+      + icon(ic, 15) + label + '</button>';
+  };
+  el.innerHTML = opt(true, 'Consent given', C.green, '#ECFDF5', 'checkCircle') + opt(false, 'Not given', C.red, '#FEF2F2', 'x');
+}
+
+// Typing a FIDE ID (new record) fills in a known player's name / mobile (only empty fields).
 function consentFormLookup() {
-  const p = playerById(Q('csaCfFide').value);
-  const existing = state.consent.rows.find(r => r.fide_id && r.fide_id === String(Q('csaCfFide').value).trim());
+  const fid = String(Q('csaCfFide').value).trim();
+  const p = playerById(fid);
+  const existing = !state.modal.consentId && findConsent(fid, '');
   if (p) {
     if (!Q('csaCfName').value.trim()) Q('csaCfName').value = p.player_name;
     if (!Q('csaCfMobile').value.trim()) Q('csaCfMobile').value = p.mobile_number;
   }
   Q('csaCfHint').textContent = existing
     ? 'This FIDE ID already has a consent record — saving will update it.'
-    : p ? 'Found: ' + p.player_name + '.' : 'Enter a FIDE ID to fill in a known player’s name and mobile.';
+    : p ? 'Found: ' + p.player_name + ' · ' + statusLabel(p.status) + '.' : 'Enter a FIDE ID to fill in a known player’s name and mobile.';
 }
 
-// Adds a record, or updates the existing one for the same FIDE ID (else mobile number).
+// Updates the record being edited (or the existing one for this FIDE ID / mobile), else adds one.
 async function saveConsentForm(btn) {
   const fid = Q('csaCfFide').value.trim();
   const name = Q('csaCfName').value.trim();
   const mobile = Q('csaCfMobile').value.trim();
-  const yes = Q('csaCfYes').checked;
+  const yes = !!state.modal.yes;
   if (!name) { modalMessage('Enter the player name.', 'error'); return; }
   if (!fid && !mobile) { modalMessage('Enter a FIDE ID or a mobile number.', 'error'); return; }
   if (fid && !/^\d+$/.test(fid)) { modalMessage('FIDE ID must be a number.', 'error'); return; }
   const values = { player_name: name, fide_id: fid ? Number(fid) : null, mobile_number: mobile || null, is_consent: yes };
-  const existing = state.consent.rows.find(r => (fid && r.fide_id === fid) || (!fid && mobile && mobileKey(r.mobile_number) === mobileKey(mobile)));
+  const id = state.modal.consentId || (findConsent(fid, mobile) || {}).id;
+  const m = state.modal;
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    if (existing) await dbUpdate(TBL.consent, existing.id, values);
-    else await dbCreate(TBL.consent, values);
+    // Upload new images first; each one leaves the "pending" list once it is stored.
+    while (m.pending.length) {
+      btn.textContent = 'Uploading image ' + (m.images.length + 1) + '…';
+      m.images.push(await uploadImage(m.pending[0].file));
+      m.pending.shift();
+      renderCfImages();
+    }
+    const imagesChanged = m.images.length || (id && (state.consent.rows.find(r => String(r.id) === String(id)) || { images: [] }).images.length);
+    if (imagesChanged) values.images = consentImagesValue(m.images);
+    btn.textContent = 'Saving…';
+    const warn = await saveConsentRecord(id, values, imagesChanged ? m.images : null);
+    if (warn) {
+      await loadConsent();
+      modalMessage(warn, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Save';
+      return;
+    }
     closeModal();
-    await loadConsent((existing ? 'Updated ' : 'Added ') + name);
+    await loadConsent((id ? 'Updated ' : 'Added ') + name + ' — consent ' + (yes ? 'given' : 'not given'));
   } catch (e) {
     console.error('[csa] consent save failed', e);
     modalMessage('Could not save: ' + errMsg(e, 'unknown error'), 'error');
@@ -789,12 +1189,47 @@ async function saveConsentForm(btn) {
   }
 }
 
+// Image viewer for one consent record: big preview, thumbnails, download one / all.
+function openConsentGallery(id) {
+  const rec = state.consent.rows.find(r => String(r.id) === String(id));
+  if (!rec || !rec.images.length) return;
+  openModal('gallery', 820, modalShell('image', 'Images — ' + esc(rec.player_name || 'player'),
+    rec.images.length + (rec.images.length === 1 ? ' image' : ' images') + ' · consent ' + (rec.yes ? 'given' : 'not given'),
+    '<div id="csaGal"></div>'), { images: rec.images, cur: 0, name: rec.player_name });
+  renderGallery();
+}
+
+function renderGallery() {
+  const m = state.modal;
+  if (!m || m.kind !== 'gallery' || !Q('csaGal')) return;
+  const im = m.images[m.cur];
+  Q('csaGal').innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:center;background:' + C.bg + ';border:1px solid ' + C.line + ';border-radius:12px;padding:10px;min-height:240px;">'
+    + '<img src="' + esc(im.url) + '" alt="" style="max-width:100%;max-height:460px;object-fit:contain;border-radius:8px;"></div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap;">'
+    + '<span style="font-size:12.5px;color:' + C.sub + ';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (m.cur + 1) + ' / ' + m.images.length + ' · ' + esc(im.name || '') + '</span>'
+    + '<button data-a="gal-dl" style="' + GHOST + '">' + icon('download', 14) + 'Download</button>'
+    + (m.images.length > 1 ? '<button data-a="gal-dl-all" style="' + BTN(C.blue) + '">' + icon('download', 14) + 'Download all (' + m.images.length + ')</button>' : '')
+    + '</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;">'
+    + m.images.map((x, i) => '<div data-a="gal-pick" data-i="' + i + '" style="cursor:pointer;border-radius:10px;padding:2px;border:2px solid ' + (i === m.cur ? C.blue : 'transparent') + ';">' + imageThumb(x, '', 60) + '</div>').join('')
+    + '</div>';
+  fitRootToModal();
+}
+
+function imageFileName(im, base, i) {
+  const ext = (String(im.name || im.url).match(/\.[a-z0-9]{2,5}(?=$|\?)/i) || ['.jpg'])[0];
+  return (String(base || 'consent').trim().replace(/[^a-zA-Z0-9]+/g, '_') || 'consent') + '_' + (i + 1) + ext;
+}
+function downloadImage(im, base, i) { downloadHref(im.url, imageFileName(im, base, i), true); }
+
 // ── 1. Achievers ────────────────────────────────────────────────────────────
 // cc_csoc_achievements record -> table row
 function achRowFromDb(rec, i) {
   const num = v => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? null : Number(v));
   return {
     _i: i,
+    id: rec.id,
     player_name: rec.player_name || '',
     fide_id: String(rec.fide_id || '').trim(),
     mobile: rec.mobile_number ? String(rec.mobile_number) : '',
@@ -805,28 +1240,94 @@ function achRowFromDb(rec, i) {
     rating_change: num(rec.rating_change),
     is_rated: rec.is_rated === true || rec.is_rated === 1 || isRatedName(rec.tournament_name),
     date: normEndDate(rec.end_date),
+    // Follow-up (Achievement tab of the player pop-up)
+    fu: rec.status === null || rec.status === undefined ? '' : String(rec.status),
+    comment: rec.comment ? String(rec.comment) : '',
+    connected_by: rec.connected_by ? String(rec.connected_by) : '',
+    connected_at: rec.connected_date_time || '',
   };
+}
+
+// Follow-up status (cc_csoc_achievements.status) — label + colour
+// list: the status options (default Achievements; meta.gotStatus for Got Rating)
+function fuLabel(v, list) { const o = (list || meta.achStatus).find(x => x.value === String(v)); return o ? o.label : String(v || ''); }
+const FU_TONE = {
+  'consent received': ['#ECFDF5', '#047857', '#A7F3D0'], 'consent declined': ['#FEF2F2', '#B91C1C', '#FECACA'],
+  'follow up': [C.blueLt, C.blueDk, '#DBEAFE'], pending: ['#FFFBEB', '#B45309', '#FDE68A'],
+  rnr: ['#F5F3FF', '#6D28D9', '#DDD6FE'], 'not eligible': ['#F1F5F9', C.sub, C.line],
+};
+function fuChip(v, list) {
+  if (!v) return '<span style="' + MUTED + '">—</span>';
+  const tone = FU_TONE[fuLabel(v, list).toLowerCase()] || ['#F1F5F9', C.ink2, C.line];
+  return '<span style="' + PILL(tone[0], tone[1], tone[2]) + '">' + esc(fuLabel(v, list)) + '</span>';
+}
+// An achievement row by id, from Achievers or the Follow-ups page
+function findAchRow(id) {
+  const same = r => String(r.id) === String(id);
+  return state.ach.rows.find(same) || state.fu.rows.find(same) || null;
+}
+// "2026-10-05T09:12:00Z" -> "5 Oct 2026, 14:42" (local time)
+function fmtDateTime(v) {
+  const d = v ? new Date(v) : null;
+  if (!d || isNaN(d)) return String(v || '');
+  return d.getDate() + ' ' + MON_ABBR[d.getMonth()] + ' ' + d.getFullYear() + ', ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
 }
 
 function rowMobile(r) { const p = playerById(r.fide_id); return r.mobile || (p && p.mobile_number) || ''; }
 function achStatus(r) { const p = playerById(r.fide_id); return p ? p.status : ''; }
+// Active in the month the tournament ended
+function achActive(r) { return activeInMonth(r.fide_id, ymdToMonthKey(r.date)); }
 
 const ACH_SORT_GET = {
   name: r => r.player_name || '',
-  status: r => statusLabel(achStatus(r)),
+  assignee: r => assigneeOf(rowMobile(r)),
+  status: r => (achActive(r) ? 1 : 0),
+  fu: r => fuLabel(r.fu),
   tournament: r => r.tournament_name || '',
   date: r => r.date || '',
   rank: r => r.rank || null,
   rc: r => r.rating_change,
 };
 
+// Consent explicitly declined (a consent record saying "No"); no record yet is not declined.
+function consentDeclined(fid, mobile) { const c = findConsent(fid, mobile); return !!(c && !c.yes); }
+
+// An assigned person sees only the results worth a follow-up: a FIDE-rated gain of +40 or more,
+// or a top-5 finish — all in one list.
+const MINE_MIN_GAIN = 40;
+const MINE_MAX_RANK = 5;
+function achWorthFollowup(r) {
+  return (r.is_rated && r.rating_change !== null && r.rating_change >= MINE_MIN_GAIN) || (r.rank && r.rank <= MINE_MAX_RANK);
+}
+
+// Achievers is the to-do list: only results not followed up yet (no status) or marked Pending.
+// Any other status takes the result off this list (Consent Received ones go to Create Poster).
+function fuPendingValue() { const o = meta.achStatus.find(x => x.label.trim().toLowerCase() === 'pending'); return o ? o.value : 'Pending'; }
+// Pending by stored value or by label (the select may store a key, or the label itself)
+function achIsPending(r) {
+  return !!r.fu && (r.fu === fuPendingValue() || String(r.fu).trim().toLowerCase() === 'pending' || fuLabel(r.fu).trim().toLowerCase() === 'pending');
+}
+function achToDo(r) { return !r.fu || achIsPending(r); }
+
+// Rows shown: to-do, not consent-declined (a Pending result stays — it is still being worked on),
+// and for an assigned person only their students' notable results
+function achBase() {
+  return state.ach.rows.filter(r => achToDo(r) && mineOk(rowMobile(r))
+    && (achIsPending(r) || !consentDeclined(r.fide_id, rowMobile(r)))
+    && (!state.mine || achWorthFollowup(r)));
+}
+// Got Rating: consent-declined players are hidden unless they already have a follow-up status
+function gotBase() { return state.got.rows.filter(r => mineOk(rowMobile(r)) && (r.fu || !consentDeclined(r.fide_id, rowMobile(r)))); }
+
 function achVisibleRows() {
   const a = state.ach;
   const s = a.search.trim().toLowerCase();
-  let rows = a.rows.filter(r => {
+  let rows = achBase().filter(r => {
     if (a.filter === 'rated' && !r.is_rated) return false;
     if (a.filter === 'podium' && !(r.rank && r.rank <= 3)) return false;
-    if (s && ![r.player_name, r.fide_id, r.tournament_name, rowMobile(r)].some(v => String(v || '').toLowerCase().includes(s))) return false;
+    if (a.sub !== 'all' && achActive(r) !== (a.sub === 'active')) return false;
+    if (a.fuFilter !== 'all' && (a.fuFilter === 'none' ? !!r.fu : !achIsPending(r))) return false;
+    if (s && ![r.player_name, r.fide_id, r.tournament_name, rowMobile(r), assigneeOf(rowMobile(r))].some(v => String(v || '').toLowerCase().includes(s))) return false;
     return true;
   });
   if (a.sort.key) rows = sortRows(rows, ACH_SORT_GET[a.sort.key], a.sort.dir);
@@ -835,23 +1336,37 @@ function achVisibleRows() {
 
 function renderAch() {
   const a = state.ach;
-  Q('csaFilter_ach').innerHTML = [['all', 'All results'], ['rated', 'FIDE rated'], ['podium', 'Podium']].map(f =>
+  // Assigned people get one combined list (rated +40 or top 5), so no FIDE rated / Podium buttons
+  if (state.mine) a.filter = 'all';
+  Q('csaFilter_ach').style.display = state.mine ? 'none' : '';
+  Q('csaFilter_ach').innerHTML = state.mine ? '' : [['all', 'All results'], ['rated', 'FIDE rated'], ['podium', 'Podium']].map(f =>
     '<button data-a="filter" data-filter="' + f[0] + '" style="' + tabStyle(a.filter === f[0]) + 'padding:6px 12px;">' + f[1] + '</button>').join('');
+  // Subscription status + follow-up status dropdowns (labels updated in place so an open dropdown stays open)
+  const subOpts = [['all', 'Any status'], ['active', 'Active'], ['inactive', 'Inactive']];
+  const fuOpts = [['all', 'Any follow-up'], ['none', 'No follow-up yet'], [fuPendingValue(), 'Pending']];
+  const fill = (sel, opts, count, val) => {
+    if (sel.options.length !== opts.length) sel.innerHTML = opts.map(o => '<option value="' + esc(o[0]) + '"></option>').join('');
+    opts.forEach((o, i) => { sel.options[i].value = o[0]; sel.options[i].textContent = o[1] + (a.loaded && o[0] !== 'all' ? ' (' + count(o[0]) + ')' : ''); });
+    sel.value = val;
+  };
+  const base = achBase();
+  fill(Q('csaSub_ach'), subOpts, v => base.filter(r => achActive(r) === (v === 'active')).length, a.sub);
+  fill(Q('csaFu_ach'), fuOpts, v => base.filter(r => (v === 'none' ? !r.fu : achIsPending(r))).length, a.fuFilter);
   const rows = achVisibleRows();
 
   const players = new Set(rows.map(r => r.fide_id)).size;
   const podium = rows.filter(r => r.rank && r.rank <= 3).length;
   const gained = rows.reduce((s, r) => s + (r.is_rated && r.rating_change > 0 ? r.rating_change : 0), 0);
   Q('csaKpis_ach').innerHTML = !a.loaded ? '' :
-    kpi('Results', fmtNum(rows.length), C.blue, monthLabel(a.month === 'All' ? 'All months' : a.month))
+    kpi('Results', fmtNum(rows.length), C.blue, (state.mine ? 'rated +' + MINE_MIN_GAIN + ' or top ' + MINE_MAX_RANK + ' · ' : '') + monthLabel(a.month === 'All' ? 'All months' : a.month))
     + kpi('Players', fmtNum(players), '#0D9488', 'with a result')
     + kpi('Podium finishes', fmtNum(podium), '#F59E0B', 'rank 1–3')
     + kpi('Rating gained', '+' + fmtNum(gained), '#10B981', 'FIDE-rated events');
 
   const cols = [
-    { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'Mobile' }, { label: 'Consent', center: true },
+    { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'Mobile' }, { label: 'Assigned to', sort: 'assignee' },
     { label: 'Status', sort: 'status' }, { label: 'Tournament', sort: 'tournament' }, { label: 'End date', sort: 'date' },
-    { label: 'Rank', sort: 'rank' }, { label: 'Rating ±', sort: 'rc', num: true }, { label: '', w: '1%' },
+    { label: 'Rank', sort: 'rank' }, { label: 'Rating ±', sort: 'rc', num: true },
   ];
   const thead = '<thead><tr>' + cols.map(c => thCell('ach', c)).join('') + '</tr></thead>';
   let body;
@@ -871,16 +1386,15 @@ function renderAch() {
         : '<span title="' + esc(full) + '">' + esc(short) + '</span>';
       return '<tr>'
         + '<td style="' + TD + 'color:' + C.mute + ';font-size:12px;">' + (offset + i + 1) + '</td>'
-        + '<td style="' + TD + '">' + playerCell(r.fide_id, r.player_name, mobile) + '</td>'
+        + '<td style="' + TD + '">' + playerCell(r.fide_id, r.player_name, mobile, 'consent-player', r.id) + '</td>'
         + '<td style="' + TD + 'color:' + C.sub + ';white-space:nowrap;">' + esc(mobile || '—') + '</td>'
-        + '<td style="' + TD + 'text-align:center;">' + consentCell(r.fide_id, r.player_name, mobile) + '</td>'
-        + '<td style="' + TD + '">' + statusChip(achStatus(r)) + '</td>'
+        + '<td style="' + TD + 'white-space:nowrap;">' + assigneeCell(mobile) + '</td>'
+        + '<td style="' + TD + '" title="Subscription active in ' + esc(monthLabel(ymdToMonthKey(r.date))) + '?">' + activeChip(achActive(r)) + '</td>'
         + '<td style="' + TD + '">' + tourn
         + (r.is_rated ? ' <span style="background:' + C.blueLt + ';color:' + C.blueDk + ';border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-left:4px;">FIDE</span>' : '') + '</td>'
         + '<td style="' + TD + 'color:' + C.sub + ';white-space:nowrap;">' + esc(fmtYMD(r.date) || '—') + '</td>'
         + '<td style="' + TD + '">' + rankChip(r.rank) + '</td>'
         + '<td style="' + TD + 'text-align:right;">' + ratingDelta(r.rating_change) + '</td>'
-        + '<td style="' + TD + '"><button data-a="poster-ach" data-i="' + r._i + '" style="' + GHOST + 'padding:5px 11px;font-size:12px;color:' + C.blue + ';">' + icon('image', 13) + 'Poster</button></td>'
         + '</tr>';
     }).join('');
   }
@@ -914,7 +1428,9 @@ async function loadAch(note) {
     a.rows = recs.map(achRowFromDb);
     a.loaded = true;
     if (!cached) a.page = 0;
-    setStatus('ach', prefix + a.rows.length + ' results for ' + label, note ? 'ok' : '');
+    a.statusLine = [prefix + a.rows.length + ' results for ' + label, note ? 'ok' : ''];
+    setStatus('ach', a.statusLine[0], a.statusLine[1]);
+    achFillRatingChanges();
   } catch (e) {
     if (seq !== a.seq) return;
     console.error('[csa] achievements load failed', e);
@@ -923,6 +1439,62 @@ async function loadAch(note) {
   }
   renderAch();
   renderTabs();
+}
+
+// Results saved without a rating change (the search only looks up a player's first few
+// tournaments, and chess-results can be slow to show older ones): look each one up on
+// chess-results (/api/chess-results?tnr=&fide_id=) and save it. Rows that stay empty had no
+// rated games; they are tried once per visit. A tournament that was never played (only its
+// starting list is on chess-results, so the "rank" is the starting rank) is removed, unless
+// someone already followed it up.
+let achFillRunning = false;
+let achRenderTimer = null;
+async function achFillRatingChanges() {
+  const a = state.ach;
+  if (achFillRunning || a.busy) return;
+  const todo = a.rows.filter(r => r.rating_change === null && r.tournament_id && r.fide_id && r.id !== undefined
+    && !a.rcTried.has(r.tournament_id + '|' + r.fide_id));
+  if (!todo.length) return;
+  achFillRunning = true;
+  let done = 0, filled = 0, removed = 0;
+  try {
+    await runPool(todo, 3, async r => {
+      a.rcTried.add(r.tournament_id + '|' + r.fide_id);
+      try {
+        const d = await proxyGet('/api/chess-results', { tnr: r.tournament_id, fide_id: r.fide_id });
+        if (d && d.ok && d.played === false) {
+          if (!r.fu && !r.comment) {
+            await dbDestroy(TBL.ach, r.id);
+            a.rows = a.rows.filter(x => x.id !== r.id);
+            Object.keys(a.cache).forEach(k => { a.cache[k] = a.cache[k].filter(rec => rec.id !== r.id); });
+            removed++;
+          }
+        } else {
+          const rc = d && d.ok && d.rating_change !== undefined && d.rating_change !== null ? Number(d.rating_change) : null;
+          if (rc !== null && !isNaN(rc)) {
+            await dbUpdate(TBL.ach, r.id, { rating_change: rc });
+            filled++;
+            // Every loaded copy: the table rows and the per-month caches
+            a.rows.forEach(x => { if (x.id === r.id) x.rating_change = rc; });
+            Object.keys(a.cache).forEach(k => a.cache[k].forEach(rec => { if (rec.id === r.id) rec.rating_change = rc; }));
+          }
+        }
+      } catch (e) {
+        console.warn('[csa] rating ± lookup failed', r.tournament_id, r.fide_id, e);
+      }
+      done++;
+      setStatus('ach', 'Filling in rating ± from chess-results… ' + done + ' / ' + todo.length + (filled ? ' · ' + filled + ' found' : ''));
+      if (!achRenderTimer) achRenderTimer = setTimeout(() => { achRenderTimer = null; renderAch(); }, 300);
+    });
+  } finally {
+    achFillRunning = false;
+  }
+  const base = a.statusLine ? a.statusLine[0] + ' · ' : '';
+  setStatus('ach', base + 'rating ± filled in for ' + filled + ' of ' + todo.length
+    + (filled + removed < todo.length ? ' (the rest have no rated games on chess-results)' : '')
+    + (removed ? ' · ' + removed + ' not played yet, removed' : ''), 'ok');
+  renderAch();
+  achFillRatingChanges(); // a month selected meanwhile
 }
 
 // Results whose tournament ended in `month` ('All' = everything)
@@ -1008,6 +1580,7 @@ async function fetchAch(month) {
       for (const t of resp.tournaments || []) {
         const end = parseYMD(normEndDate(t.date));
         if (!end || end >= today || end < first || end > last) continue; // still running / other month
+        if (t.played === false) { skipped++; continue; } // date passed but no round played (only a starting list)
         const key = fid + '|' + String(t.tournament_name || '').trim().toLowerCase();
         if (seenName[key] || (seenTnr[fid] || []).indexOf(String(t.tournament_id)) >= 0) { skipped++; continue; }
         seenName[key] = true;
@@ -1081,6 +1654,118 @@ async function fetchAch(month) {
   }
 }
 
+// ── Create Poster page ─────────────────────────────────────────────────────
+// Every followed-up achievement (any month), newest call first, filtered by status — opens on
+// "Consent Received": who called and when, the comment, consent, the pictures and a Poster button.
+async function loadFollowups() {
+  const f = state.fu;
+  f.loading = true;
+  f.error = '';
+  renderFollowups();
+  try {
+    await metaPromise;
+    if (f.status === null) {
+      const cr = meta.achStatus.find(o => o.label.trim().toLowerCase() === 'consent received');
+      f.status = cr ? cr.value : 'all';
+    }
+    const recs = await fetchAll(TBL.ach, { filter: JSON.stringify({ status: { $in: meta.achStatus.map(o => o.value) } }) });
+    f.rows = recs.map(achRowFromDb);
+    f.loaded = true;
+  } catch (e) {
+    console.error('[csa] follow-ups load failed', e);
+    f.error = 'Could not load follow-ups: ' + errMsg(e, 'unknown error');
+  }
+  f.loading = false;
+  renderFollowups();
+  renderTabs();
+}
+
+const FU_SORT_GET = {
+  name: r => r.player_name || '',
+  assignee: r => assigneeOf(rowMobile(r)),
+  date: r => r.date || '',
+  at: r => (r.connected_at ? new Date(r.connected_at).getTime() || null : null),
+  rc: r => r.rating_change,
+};
+
+function fuVisibleRows() {
+  const f = state.fu;
+  const s = f.search.trim().toLowerCase();
+  // A status changed in the pop-up moves the row to that status straight away
+  let rows = f.rows.filter(r => r.fu && f.status !== null && (f.status === 'all' || r.fu === f.status) && mineOk(rowMobile(r))
+    && (!s || [r.player_name, r.fide_id, r.tournament_name, rowMobile(r), assigneeOf(rowMobile(r)), r.connected_by, r.comment]
+      .some(v => String(v || '').toLowerCase().includes(s))));
+  if (f.sort.key) rows = sortRows(rows, FU_SORT_GET[f.sort.key], f.sort.dir);
+  return rows;
+}
+
+function renderFollowups() {
+  const f = state.fu;
+  const sel = ctx.element.querySelector('select[data-c="fu-status"]');
+  if (!sel) return;
+  // Status options with counts (this user's rows), updated in place so an open dropdown stays open
+  const opts = meta.achStatus.map(o => [o.value, o.label]).concat([['all', 'All statuses']]);
+  if (sel.options.length !== opts.length) sel.innerHTML = opts.map(() => '<option></option>').join('');
+  const mine = f.rows.filter(r => r.fu && mineOk(rowMobile(r)));
+  opts.forEach((o, i) => {
+    sel.options[i].value = o[0];
+    sel.options[i].textContent = o[1] + (f.loaded ? ' (' + (o[0] === 'all' ? mine.length : mine.filter(r => r.fu === o[0]).length) + ')' : '');
+  });
+  if (f.status !== null) sel.value = f.status;
+
+  const rows = fuVisibleRows();
+  if (f.loading) setStatus('fu', 'Loading…');
+  else if (f.error) setStatus('fu', f.error, 'err');
+  else if (f.loaded) setStatus('fu', fmtNum(rows.length) + ' results · ' + (f.status === 'all' ? 'all statuses' : fuLabel(f.status)));
+
+  const cols = [
+    { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'Assigned to', sort: 'assignee' },
+    { label: 'Result', sort: 'date' }, { label: 'Rating ±', sort: 'rc', num: true }, { label: 'Status', sort: 'at' },
+    { label: 'Consent', center: true }, { label: 'Pictures' }, { label: 'Comment' }, { label: '', w: '1%' },
+  ];
+  const thead = '<thead><tr>' + cols.map(c => thCell('fu', c)).join('') + '</tr></thead>';
+  let body;
+  if (!f.loaded) body = emptyRow(cols.length, f.error ? esc(f.error) : 'Loading…');
+  else if (!rows.length) body = emptyRow(cols.length, 'No results with this status yet — statuses are set in the Achievement tab of the player pop-up in Achievers.');
+  else {
+    f.page = Math.min(f.page, Math.ceil(rows.length / PAGE_SIZE) - 1);
+    const offset = f.page * PAGE_SIZE;
+    const small = 'font-size:11px;color:' + C.mute + ';';
+    body = rows.slice(offset, offset + PAGE_SIZE).map((r, i) => {
+      const mobile = rowMobile(r);
+      const crec = findConsent(r.fide_id, mobile);
+      const tourn = r.tournament_link
+        ? '<a class="csa-t" href="' + esc(r.tournament_link) + '" target="_blank" rel="noopener noreferrer">' + esc(r.tournament_name) + '</a>'
+        : esc(r.tournament_name || '—');
+      const consent = !crec ? '<span style="' + MUTED + '">—</span>' : crec.yes
+        ? '<span style="' + PILL('#ECFDF5', '#047857', '#A7F3D0') + '">' + icon('checkCircle', 12) + 'Yes</span>'
+        : '<span style="' + PILL('#FEF2F2', '#B91C1C', '#FECACA') + '">' + icon('x', 12) + 'No</span>';
+      const pics = crec && crec.images.length
+        ? '<button data-a="consent-imgs" data-id="' + esc(crec.id) + '" title="View / download pictures" style="display:inline-flex;align-items:center;gap:6px;padding:3px;border:1px solid ' + C.line + ';border-radius:10px;background:#fff;cursor:pointer;">'
+          + crec.images.slice(0, 4).map(im => imageThumb(im, '', 40)).join('')
+          + '<span style="font-size:12px;font-weight:700;color:' + C.blue + ';padding:0 6px 0 2px;">' + crec.images.length + '</span></button>'
+        : '<span style="' + MUTED + '">—</span>';
+      return '<tr>'
+        + '<td style="' + TD + 'color:' + C.mute + ';font-size:12px;">' + (offset + i + 1) + '</td>'
+        + '<td style="' + TD + '">' + playerCell(r.fide_id, r.player_name, mobile, 'consent-player', r.id)
+        + '<div style="' + small + '">' + esc(mobile || '—') + (r.fide_id ? ' · FIDE ' + esc(r.fide_id) : '') + '</div></td>'
+        + '<td style="' + TD + 'white-space:nowrap;">' + assigneeCell(mobile) + '</td>'
+        + '<td style="' + TD + 'max-width:280px;">' + tourn
+        + '<div style="' + small + '">' + esc(fmtYMD(r.date) || '—') + (r.rank ? ' · rank #' + r.rank : '') + (r.is_rated ? ' · FIDE rated' : '') + '</div></td>'
+        + '<td style="' + TD + 'text-align:right;">' + ratingDelta(r.rating_change) + '</td>'
+        + '<td style="' + TD + 'white-space:nowrap;">' + fuChip(r.fu)
+        + (r.connected_by || r.connected_at ? '<div style="' + small + '">' + esc(r.connected_by || '?') + (r.connected_at ? ' · ' + esc(fmtDateTime(r.connected_at)) : '') + '</div>' : '') + '</td>'
+        + '<td style="' + TD + 'text-align:center;">' + consent + '</td>'
+        + '<td style="' + TD + '">' + pics + '</td>'
+        + '<td style="' + TD + 'max-width:260px;color:' + C.ink2 + ';white-space:normal;">' + (r.comment ? esc(r.comment) : '<span style="' + MUTED + '">—</span>') + '</td>'
+        + '<td style="' + TD + '"><button data-a="poster-ach" data-i="' + esc(r.id) + '" style="' + BTN(C.blue) + 'padding:6px 12px;font-size:12px;">' + icon('image', 13) + 'Poster</button></td>'
+        + '</tr>';
+    }).join('');
+  }
+  Q('csaTable_fu').innerHTML = thead + '<tbody>' + body + '</tbody>';
+  Q('csaPager_fu').innerHTML = f.loaded ? pagerHtml('fu', f.page, rows.length) : '';
+}
+
 // ── 2. Got Rating ───────────────────────────────────────────────────────────
 // cc_csoc_got_rating: one row per player — the first rating of each type and the
 // month it first appeared on a FIDE list ('YYYY-MM'); a type never rated stays empty.
@@ -1092,7 +1777,7 @@ const GOT_TYPES = [
 
 // record -> { player_name, fide_id, mobile, std/rap/bli (rating, 0 = none), stdP/rapP/bliP ('2026-Aug') }
 function gotRecord(rec) {
-  const r = { player_name: String(rec.player_name || ''), fide_id: String(rec.fide_id || '').trim(), mobile: rec.mobile_number ? String(rec.mobile_number) : '' };
+  const r = { id: rec.id, player_name: String(rec.player_name || ''), fide_id: String(rec.fide_id || '').trim(), mobile: rec.mobile_number ? String(rec.mobile_number) : '' };
   GOT_TYPES.forEach(t => {
     const per = normalizePeriod(String(rec[t.period] || '').trim());
     r[t.key + 'P'] = per;
@@ -1105,7 +1790,14 @@ function gotRecord(rec) {
 // row.period = that month ('All': the player's earliest first-rating month).
 function gotRowFor(rec, month, i) {
   const r = gotRecord(rec);
-  const row = { _i: i, player_name: r.player_name, fide_id: r.fide_id, mobile: r.mobile };
+  const row = {
+    _i: i, id: r.id, player_name: r.player_name, fide_id: r.fide_id, mobile: r.mobile,
+    // follow-up (cc_csoc_got_rating.status / comment / connected_by / connected_date_time)
+    fu: rec.status === null || rec.status === undefined ? '' : String(rec.status),
+    comment: rec.comment ? String(rec.comment) : '',
+    connected_by: rec.connected_by ? String(rec.connected_by) : '',
+    connected_at: rec.connected_date_time || '',
+  };
   GOT_TYPES.forEach(t => {
     const on = r[t.key] && (month === 'All' || r[t.key + 'P'] === month);
     row[t.key] = on ? r[t.key] : 0;
@@ -1126,22 +1818,52 @@ function gotMonthLabel(month) { return month === 'All' ? 'all months' : monthLab
 
 const GOT_SORT_GET = {
   name: r => r.player_name || '',
+  assignee: r => assigneeOf(rowMobile(r)),
   status: r => statusLabel(achStatus(r)),
+  fu: r => fuLabel(r.fu, meta.gotStatus),
   std: r => r.std || null,
   rap: r => r.rap || null,
   bli: r => r.bli || null,
 };
 
+// Got Rating filter: subscription active in the month of the new rating (row.period) —
+// the same rule Rating Stats counts by, so the numbers match.
+const GOT_STATUS_FILTERS = [['active', 'Active'], ['inactive', 'Inactive'], ['all', 'All']];
+const gotStatusOk = (r, st) => st === 'all' || activeInMonth(r.fide_id, r.period) === (st === 'active');
+// Student Progress: registration status of the latest registration
+const PROG_STATUS_FILTERS = [[1, 'Active'], [2, 'Expired'], [3, 'Upcoming'], [5, 'Pause'], ['all', 'All']];
+
+// Got Rating follow-up filter: 'all', 'none' (no status yet) or a status value
+const gotFuOk = (r, v) => v === 'all' || (v === 'none' ? !r.fu : r.fu === v);
+
 function gotVisibleRows() {
   const g = state.got;
   const s = g.search.trim().toLowerCase();
-  let rows = g.rows.filter(r => !s || [r.player_name, r.fide_id, rowMobile(r)].some(v => String(v || '').toLowerCase().includes(s)));
+  let rows = gotBase().filter(r => gotStatusOk(r, g.status) && gotFuOk(r, g.fuFilter)
+    && (!s || [r.player_name, r.fide_id, rowMobile(r), assigneeOf(rowMobile(r))].some(v => String(v || '').toLowerCase().includes(s))));
   if (g.sort.key) rows = sortRows(rows, GOT_SORT_GET[g.sort.key], g.sort.dir);
   return rows;
 }
 
 function renderGot() {
   const g = state.got;
+  // Option labels are updated in place, so an open dropdown stays open while rows arrive.
+  const sel = Q('csaFilter_got');
+  if (!sel.options.length) sel.innerHTML = GOT_STATUS_FILTERS.map(f => '<option value="' + f[0] + '">' + f[1] + '</option>').join('');
+  GOT_STATUS_FILTERS.forEach((f, i) => {
+    sel.options[i].textContent = f[1] + (g.loaded ? ' (' + gotBase().filter(r => gotStatusOk(r, f[0])).length + ')' : '');
+  });
+  sel.value = String(g.status);
+  // Follow-up status dropdown (counts within the registration-status filter)
+  const fuSel = Q('csaFu_got');
+  const fuOpts = [['all', 'Any follow-up'], ['none', 'No follow-up yet']].concat(meta.gotStatus.map(o => [o.value, o.label]));
+  if (fuSel.options.length !== fuOpts.length) fuSel.innerHTML = fuOpts.map(o => '<option value="' + esc(o[0]) + '"></option>').join('');
+  const fuBase = g.loaded ? gotBase().filter(r => gotStatusOk(r, g.status)) : [];
+  fuOpts.forEach((o, i) => {
+    fuSel.options[i].value = o[0];
+    fuSel.options[i].textContent = o[1] + (g.loaded && o[0] !== 'all' ? ' (' + fuBase.filter(r => gotFuOk(r, o[0])).length + ')' : '');
+  });
+  fuSel.value = g.fuFilter;
   const rows = gotVisibleRows();
   Q('csaKpis_got').innerHTML = !g.loaded ? '' :
     kpi('New FIDE ratings', fmtNum(rows.length), C.blue, g.month === 'All' ? 'All months' : monthLabel(g.month))
@@ -1150,9 +1872,9 @@ function renderGot() {
     + kpi('Blitz', fmtNum(rows.filter(r => r.bli).length), '#7C3AED', 'first blitz rating');
 
   const cols = [
-    { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'Mobile' }, { label: 'Consent', center: true },
-    { label: 'Status', sort: 'status' }, { label: 'Classical', sort: 'std', num: true }, { label: 'Rapid', sort: 'rap', num: true },
-    { label: 'Blitz', sort: 'bli', num: true }, { label: 'First rated' }, { label: '', w: '1%' },
+    { label: '#', w: '1%' }, { label: 'Player', sort: 'name' }, { label: 'Mobile' }, { label: 'Assigned to', sort: 'assignee' },
+    { label: 'Classical', sort: 'std', num: true }, { label: 'Rapid', sort: 'rap', num: true },
+    { label: 'Blitz', sort: 'bli', num: true }, { label: 'Follow-up', sort: 'fu' },
   ];
   const thead = '<thead><tr>' + cols.map(c => thCell('got', c)).join('') + '</tr></thead>';
   // 'All months' shows each type's own first-rating month under the rating.
@@ -1163,7 +1885,7 @@ function renderGot() {
   let body;
   if (!g.loaded) body = emptyRow(cols.length, 'Loading ratings…');
   else if (!rows.length) {
-    body = emptyRow(cols.length, g.rows.length ? 'No players match this search.'
+    body = emptyRow(cols.length, g.rows.length ? 'No players match this status / search.'
       : 'No players saved for ' + esc(gotMonthLabel(g.month)) + '. Use “Fetch from API” to check a month, or “Fetch all ratings”.');
   } else {
     g.page = Math.min(g.page, Math.ceil(rows.length / PAGE_SIZE) - 1);
@@ -1172,15 +1894,14 @@ function renderGot() {
       const mobile = rowMobile(r);
       return '<tr>'
         + '<td style="' + TD + 'color:' + C.mute + ';font-size:12px;">' + (offset + i + 1) + '</td>'
-        + '<td style="' + TD + '">' + playerCell(r.fide_id, r.player_name, mobile) + '</td>'
+        + '<td style="' + TD + '">' + playerCell(r.fide_id, r.player_name, mobile, 'consent-player', null, r._i) + '</td>'
         + '<td style="' + TD + 'color:' + C.sub + ';white-space:nowrap;">' + esc(mobile || '—') + '</td>'
-        + '<td style="' + TD + 'text-align:center;">' + consentCell(r.fide_id, r.player_name, mobile) + '</td>'
-        + '<td style="' + TD + '">' + statusChip(achStatus(r)) + '</td>'
+        + '<td style="' + TD + 'white-space:nowrap;">' + assigneeCell(mobile) + '</td>'
         + '<td style="' + TD + 'text-align:right;">' + cell(r.std, r.stdP) + '</td>'
         + '<td style="' + TD + 'text-align:right;">' + cell(r.rap, r.rapP) + '</td>'
         + '<td style="' + TD + 'text-align:right;">' + cell(r.bli, r.bliP) + '</td>'
-        + '<td style="' + TD + 'color:' + C.sub + ';white-space:nowrap;">' + esc(r.period ? monthLabel(r.period) : '—') + '</td>'
-        + '<td style="' + TD + '"><button data-a="poster-got" data-i="' + r._i + '" style="' + GHOST + 'padding:5px 11px;font-size:12px;color:' + C.blue + ';">' + icon('image', 13) + 'Poster</button></td>'
+        + '<td style="' + TD + 'white-space:nowrap;">' + fuChip(r.fu, meta.gotStatus)
+        + (r.comment ? '<div style="font-size:11px;color:' + C.sub + ';max-width:180px;white-space:normal;">' + esc(r.comment) + '</div>' : '') + '</td>'
         + '</tr>';
     }).join('');
   }
@@ -1241,24 +1962,112 @@ function confirmFetchAllRatings() {
   'Fetch all ratings', () => fetchGot(null));
 }
 
-// FIDE rating history, first source that answers:
-//   1. Vercel /api/fide-history (FIDE's own rating-chart data, then chesstools, server-side)
-//   2. chesstools directly from the browser
-// → { ok:true, data:[{ period:'YYYY-MM', classical_rating, rapid_rating, blitz_rating }], source, name }
-//   { ok:false, error }
+// ── FIDE rating-history sources ─────────────────────────────────────────────
+// Each fetch first checks which sources work right now and uses only those, in this order:
+//   paris  — Vercel /api/fide-history (cdg1): ratings.fide.com, else Lichess's copy of the FIDE lists
+//   us     — Vercel /api/fide-history-us (iad1)
+//   lichess — Lichess's copy of the FIDE rating lists, called from this browser
+//             (ratings.fide.com blocks cloud servers, Lichess rate-limits them; neither blocks a normal connection)
+//   chesstools — api.chesstools.org directly
+// → { ok:true, data:[{ period:'YYYY-MM', classical_rating, rapid_rating, blitz_rating }], source, name } | { ok:false, error }
+const FIDE_PROBE_ID = '1503014'; // any valid FIDE ID
+const FIDE_SOURCES = [
+  { key: 'paris', label: 'Vercel · Paris', url: () => PROXY_BASE + '/api/fide-history', timeout: 30000 },
+  { key: 'us', label: 'Vercel · US', url: () => PROXY_BASE + '/api/fide-history-us', timeout: 30000 },
+  { key: 'lichess', label: 'Lichess', lookup: fid => lichessHistory(fid) },
+  { key: 'chesstools', label: 'chesstools', url: () => 'https://api.chesstools.org/fide/player_history/', timeout: 10000, raw: true },
+];
+const fideSrc = { up: {}, checkedAt: 0, fails: {} };
+
+// Lichess asks clients to wait a minute after a 429; every lookup waits out the pause.
+let lichessPausedUntil = 0;
+async function lichessGet(path) {
+  for (let attempt = 0; ; attempt++) {
+    const wait = lichessPausedUntil - Date.now();
+    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+    try {
+      return await extRequest('get', 'https://lichess.org/api/fide/player/' + path, undefined, undefined, 15000);
+    } catch (e) {
+      const status = e && e.response && e.response.status;
+      if (status === 404) return null; // not on any FIDE list
+      if (status === 429 && attempt < 2) { lichessPausedUntil = Math.max(lichessPausedUntil, Date.now() + 60000); continue; }
+      throw e;
+    }
+  }
+}
+
+// /ratings → { standard:[YYYYMMRRRR…], rapid:[…], blitz:[…] }, one entry per month the rating changed.
+async function lichessHistory(fid) {
+  const [hist, info] = await Promise.all([lichessGet(encodeURIComponent(fid) + '/ratings'), lichessGet(encodeURIComponent(fid)).catch(() => null)]);
+  if (hist && typeof hist !== 'object') return { ok: false, error: 'unexpected response' };
+  const byPeriod = new Map();
+  [['standard', 'classical_rating'], ['rapid', 'rapid_rating'], ['blitz', 'blitz_rating']].forEach(([key, field]) => {
+    ((hist && hist[key]) || []).forEach(v => {
+      const n = Number(v);
+      if (!(n > 0)) return;
+      const period = Math.floor(n / 1e6) + '-' + pad2(Math.floor(n / 1e4) % 100);
+      const row = byPeriod.get(period) || { period, classical_rating: 0, rapid_rating: 0, blitz_rating: 0 };
+      row[field] = n % 1e4;
+      byPeriod.set(period, row);
+    });
+  });
+  return { ok: true, data: [...byPeriod.values()], source: 'lichess', name: (info && info.name) || '' };
+}
+
+async function probeSource(src) {
+  try {
+    if (src.lookup) {
+      const d = await src.lookup(FIDE_PROBE_ID);
+      return !!(d && d.ok && d.data.length);
+    }
+    const d = await extRequest('get', src.url(), { fide_id: FIDE_PROBE_ID }, undefined, src.raw ? 6000 : 25000);
+    return src.raw ? Array.isArray(d) && d.length > 0 : !!(d && d.ok);
+  } catch (e) {
+    return false;
+  }
+}
+
+// Checks every source in parallel; returns the keys that work.
+// Resolves as soon as the first source answers (or all have failed); slower probes keep
+// running and switch their source on when they finish, so no lookup waits on a 25 s timeout.
+async function checkFideSources() {
+  FIDE_SOURCES.forEach(src => { fideSrc.fails[src.key] = 0; });
+  await new Promise(resolve => {
+    let left = FIDE_SOURCES.length;
+    FIDE_SOURCES.forEach(src => {
+      probeSource(src).then(ok => {
+        fideSrc.up[src.key] = ok;
+        if (ok) resolve();
+        if (--left === 0) resolve();
+      });
+    });
+  });
+  fideSrc.checkedAt = Date.now();
+  return FIDE_SOURCES.filter(src => fideSrc.up[src.key]).map(src => src.key);
+}
+
 async function fideHistory(fid) {
   const errors = [];
-  try {
-    const d = await extRequest('get', PROXY_BASE + '/api/fide-history', { fide_id: fid }, undefined, 45000);
-    if (d && d.ok) return { ok: true, data: d.data || [], source: d.source || 'proxy', name: d.name || '' };
-    errors.push('proxy: ' + ((d && d.error) || 'bad response'));
-  } catch (e) { errors.push('proxy: ' + errMsg(e, 'failed')); }
-  try {
-    const d = await extRequest('get', 'https://api.chesstools.org/fide/player_history/', { fide_id: fid }, undefined, 10000);
-    if (Array.isArray(d)) return { ok: true, data: d, source: 'chesstools', name: '' };
-    errors.push('chesstools: bad response');
-  } catch (e) { errors.push('chesstools: ' + errMsg(e, 'failed')); }
-  return { ok: false, error: errors.join('; ') };
+  for (const src of FIDE_SOURCES) {
+    if (!fideSrc.up[src.key]) continue;
+    try {
+      if (src.lookup) {
+        const d = await src.lookup(fid);
+        if (d.ok) { fideSrc.fails[src.key] = 0; return d; }
+        errors.push(src.key + ': ' + d.error);
+      } else {
+        const d = await extRequest('get', src.url(), { fide_id: fid }, undefined, src.timeout);
+        if (src.raw && Array.isArray(d)) { fideSrc.fails[src.key] = 0; return { ok: true, data: d, source: src.key, name: '' }; }
+        if (!src.raw && d && d.ok) { fideSrc.fails[src.key] = 0; return { ok: true, data: d.data || [], source: d.source || src.key, name: d.name || '' }; }
+        errors.push(src.key + ': ' + ((d && d.error) || 'bad response'));
+      }
+    } catch (e) {
+      errors.push(src.key + ': ' + errMsg(e, 'failed'));
+    }
+    // Failed 3 times in a row (e.g. FIDE blocked the server's IP mid-run): drop it for the rest of the run.
+    if (++fideSrc.fails[src.key] >= 3) fideSrc.up[src.key] = false;
+  }
+  return { ok: false, error: errors.join('; ') || 'no working FIDE source' };
 }
 
 // ── Fetch log pop-up (Got Rating fetches): FIDE ID | player | fetched | source | status ──
@@ -1280,7 +2089,7 @@ const LOG_FILTERS = [
 function startLog(title, todo, skipped) {
   const rows = todo.map(p => ({ fid: String(p.fide_id), name: p.player_name, fetched: '', source: '', status: 'queued', detail: '' }))
     .concat(skipped.map(p => ({ fid: String(p.fide_id), name: p.player_name, fetched: '', source: '', status: 'skipped', detail: '' })));
-  state.got.log = { title, rows, byFid: new Map(rows.map(r => [r.fid, r])), filter: 'all', running: true, result: '' };
+  state.got.log = { title, rows, byFid: new Map(rows.map(r => [r.fid, r])), filter: 'all', running: true, result: '', sources: Object.assign({}, fideSrc.up) };
   openLog();
 }
 
@@ -1323,6 +2132,11 @@ function renderLog() {
     + '<div style="flex:1;"></div>'
     + (log.running && !state.got.stop ? '<button data-a="fetch-stop" style="' + GHOST + 'color:' + C.red + ';">' + icon('x', 14) + 'Stop</button>' : '')
     + '</div>'
+    + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;"><span style="color:' + C.sub + ';font-weight:600;">FIDE sources:</span>'
+    + FIDE_SOURCES.map(src => {
+      const ok = log.sources && log.sources[src.key];
+      return '<span style="' + (ok ? PILL('#ECFDF5', '#047857', '#A7F3D0') : PILL('#F1F5F9', C.mute, C.line)) + '">' + (ok ? '✓ ' : '✗ ') + esc(src.label) + '</span>';
+    }).join('') + '</div>'
     + '<div style="height:6px;border-radius:999px;background:' + C.line + ';overflow:hidden;margin-bottom:10px;"><div style="height:100%;width:' + pct + '%;background:' + C.blue + ';border-radius:999px;transition:width .25s;"></div></div>'
     + (log.result ? '<div style="font-size:12.5px;color:#047857;font-weight:600;margin-bottom:10px;">' + esc(log.result) + '</div>' : '')
     + '<div style="' + SEG + 'margin-bottom:10px;">' + LOG_FILTERS.map(chip).join('') + '</div>';
@@ -1389,9 +2203,18 @@ async function fetchGot(month) {
     if (!srcPlayers.length) { setStatus('got', month ? 'No players active in ' + monthLabel(month) + '.' : 'No players found.', 'err'); return; }
 
     setStatus('got', 'Checking players who already have a rating…');
-    const rated = await ratedFideIds();
+    setStatus('got', 'Checking players who already have a rating, and which FIDE sources work…');
+    const [rated, working] = await Promise.all([ratedFideIds(), checkFideSources()]);
     const todo = srcPlayers.filter(p => !rated.has(String(p.fide_id).trim()));
     const alreadyRated = srcPlayers.length - todo.length;
+    if (todo.length && !working.length) {
+      setStatus('got', 'No FIDE source is reachable right now. Try again in a few minutes.', 'err');
+      startLog(month ? 'Fetch ratings — ' + monthLabel(month) : 'Fetch all ratings', [], []);
+      state.got.log.running = false;
+      state.got.log.result = 'Not started: no FIDE source is reachable.';
+      renderLog();
+      return;
+    }
     startLog(month ? 'Fetch ratings — ' + monthLabel(month) : 'Fetch all ratings',
       todo, srcPlayers.filter(p => rated.has(String(p.fide_id).trim())));
 
@@ -1426,7 +2249,7 @@ async function fetchGot(month) {
       }
     };
     setStatus('got', 'Fetching 0 / ' + todo.length + ' players…');
-    await runPool(todo, GOT_PARALLEL, async player => {
+    const checkPlayer = async player => {
       const fid = String(player.fide_id);
       if (g.stop) { logUpdate(fid, { status: 'stopped' }); return; }
       logUpdate(fid, { status: 'checking' });
@@ -1442,7 +2265,7 @@ async function fetchGot(month) {
         if (month && !types.some(k => first[k].key === month)) { logUpdate(fid, { status: 'other', detail: 'First rated: ' + firstText }); return; }
         // FIDE spelling of the name, used for display + DB
         let name = resp.name || player.player_name;
-        if (!resp.name) {
+        if (!resp.name && fideSrc.up.chesstools) {
           try {
             const info = await extRequest('get', 'https://api.chesstools.org/fide/player_info/', { fide_id: player.fide_id, history: 'false' }, undefined, 8000);
             if (info && info.name) name = info.name;
@@ -1464,7 +2287,18 @@ async function fetchGot(month) {
         setProgress('got', done / todo.length * 100);
         setStatus('got', 'Checked ' + done + ' / ' + todo.length + ' players — ' + savedCount + ' new ratings saved' + (failed ? ', ' + failed + ' failed' : '') + '…');
       }
-    });
+    };
+    await runPool(todo, GOT_PARALLEL, checkPlayer);
+
+    // One more try, slower, for players whose lookup failed (FIDE is often just busy).
+    const retry = todo.filter(p => { const r = g.log.byFid.get(String(p.fide_id)); return r && r.status === 'error' && r.fetched === 'no'; });
+    if (retry.length && !g.stop) {
+      retry.forEach(p => logUpdate(p.fide_id, { status: 'queued', fetched: '', detail: 'Retrying…' }));
+      setStatus('got', 'Retrying ' + retry.length + ' players whose lookup failed…');
+      apiErrors = 0;
+      await runPool(retry, 2, checkPlayer);
+    }
+    apiErrors = g.log.rows.filter(r => r.status === 'error' && r.fetched === 'no').length;
 
     const note = (g.stop ? 'Stopped: ' : 'Fetch done: ') + savedCount + ' new saved, ' + alreadyRated + ' already rated (skipped)'
       + (apiErrors ? ', ' + apiErrors + ' errors' : '') + (failed ? ' — ' + failed + ' could not be saved (see console)' : '');
@@ -1490,7 +2324,9 @@ const STAT_GROUPS = [
   { key: 'active', label: 'Active', head: '#D1FAE5', headInk: '#065F46', cell: '#F0FDF4', ink: C.green },
   { key: 'nonactive', label: 'Non-Active', head: '#FEE2E2', headInk: '#991B1B', cell: '#FFF5F5', ink: C.red },
 ];
-const STAT_COLS = [['all', 'Total'], ['std', 'Classical'], ['rap', 'Rapid'], ['bli', 'Blitz']];
+// 'all' counts each student once, even with two or three first ratings in the same month,
+// so it can be smaller than Classical + Rapid + Blitz.
+const STAT_COLS = [['all', 'Unique players'], ['std', 'Classical'], ['rap', 'Rapid'], ['bli', 'Blitz']];
 
 async function loadStats() {
   const s = state.stats;
@@ -1505,16 +2341,12 @@ async function loadStats() {
       if (!r.fide_id) return;
       new Set(GOT_TYPES.map(t => r[t.key + 'P']).filter(Boolean)).forEach(per => s.rows.push(gotRowFor(rec, per, 0)));
     });
-    // Group by period; active = subscription covers the 1st of that month.
+    s.rows = s.rows.filter(r => mineOk(rowMobile(r))); // an assigned person: only their students
+    // Group by period; active = a subscription overlaps that month (activeInMonth, as in Got Rating).
     const monthMap = {};
     s.rows.forEach(r => {
-      const pd = MON_ABBR.indexOf(r.period.split('-')[1]) >= 0 ? monthKeyToDate(r.period) : null;
       const player = playerById(r.fide_id);
-      let isActive = false;
-      if (pd && player) {
-        const start = parseYMD(player.subscription_start_date), end = parseYMD(player.subscription_end_date);
-        if (start && end) isActive = pd >= start && pd <= end;
-      }
+      const isActive = activeInMonth(r.fide_id, r.period);
       const m = monthMap[r.period] || (monthMap[r.period] = { active: [], nonactive: [] });
       m[isActive ? 'active' : 'nonactive'].push({ ...r, player });
     });
@@ -1641,13 +2473,385 @@ function openStatsList(period, group, col) {
     + '</tr></thead><tbody>' + rows + '</tbody></table></div>'));
 }
 
+// ── 4. Student Progress ─────────────────────────────────────────────────────
+// One row per student (mobile number + name) from view_csoc_registration_new, status not 4 / 6:
+// first subscription_start_date, last subscription_end_date (its class = batch code).
+// Ratings: the FIDE rating in the start month vs. the end month (this month if the end is
+// in the future), for Classical / Rapid / Blitz — loaded from the FIDE sources as rows are shown.
+const PROG_DURATIONS = [
+  ['all', 'Any duration'], ['0-3', 'Under 3 months', 0, 3], ['3-6', '3–6 months', 3, 6],
+  ['6-12', '6–12 months', 6, 12], ['12-24', '1–2 years', 12, 24], ['24+', '2+ years', 24, Infinity],
+];
+
+// Whole months from 'YYYY-MM-DD' a to b
+function monthsBetween(a, b) {
+  const x = parseYMD(a), y = parseYMD(b);
+  if (!x || !y) return null;
+  return Math.max(0, (y.getFullYear() - x.getFullYear()) * 12 + y.getMonth() - x.getMonth() - (y.getDate() < x.getDate() ? 1 : 0));
+}
+function fmtDuration(m) {
+  if (m === null || m === undefined) return '—';
+  if (m < 1) return '< 1 month';
+  if (m < 12) return m + (m === 1 ? ' month' : ' months');
+  return Math.floor(m / 12) + (m < 24 ? ' year' : ' years') + (m % 12 ? ' ' + (m % 12) + ' mo' : '');
+}
+
+async function loadProgress() {
+  const p = state.prog;
+  p.loading = true;
+  p.error = '';
+  renderProg();
+  try {
+    // No `fields`: the view's other columns aren't needed, but listing one it lacks would fail the request.
+    // cc_csoc_registration fills in the subscription dates when the view doesn't return them.
+    const [regs, users, subs] = await Promise.all([
+      fetchAll(TBL.regView, {}),
+      fetchAll(TBL.users, { filter: JSON.stringify({ fide_id: { $gt: 0 } }), fields: 'id,mobile_number,first_name,last_name,fide_id' }),
+      fetchAll(TBL.reg, { fields: 'id,mobile_number,subscription_start_date,subscription_end_date,status' }).catch(e => {
+        console.warn('[csa] ' + TBL.reg + ' dates not available for Student Progress', e);
+        return [];
+      }),
+    ]);
+    // Mobile (last 10 digits) -> first start / last end across its registrations (status 4 / 6 left out)
+    const subDates = new Map();
+    subs.forEach(s => {
+      const st = Number(s.status);
+      if (st === 4 || st === 6) return;
+      const k = assigneeKey(s.mobile_number);
+      const start = normEndDate(s.subscription_start_date), end = normEndDate(s.subscription_end_date);
+      if (!k || (!start && !end)) return;
+      const d = subDates.get(k) || { start: '', end: '' };
+      if (start && (!d.start || start < d.start)) d.start = start;
+      if (end && (!d.end || end > d.end)) d.end = end;
+      subDates.set(k, d);
+    });
+    const startOf = r => normEndDate(r.subscription_start_date || r.start_date || r.subscription_start || r.sub_start_date);
+    const endOf = r => normEndDate(r.subscription_end_date || r.end_date || r.subscription_end || r.sub_end_date);
+    const usersByMobile = new Map();
+    users.forEach(u => {
+      const m = String(u.mobile_number || '').trim();
+      if (m) usersByMobile.set(m, (usersByMobile.get(m) || []).concat(u));
+    });
+    const today = ymdOf(new Date());
+    const groups = new Map();
+    regs.forEach(r => {
+      const st = Number(r.status);
+      if (st === 4 || st === 6) return;
+      const mobile = String(r.mobile_number || '').trim();
+      const name = String(r.player_name || '').trim();
+      if (!mobile && !name) return;
+      const key = mobile + '|' + nameWords(name);
+      let g = groups.get(key);
+      if (!g) groups.set(key, g = { player_name: name, mobile_number: mobile, start: '', end: '', batch: '', status: 0, fide_id: '' });
+      const start = startOf(r), end = endOf(r);
+      if (start && (!g.start || start < g.start)) g.start = start;
+      // Status + batch from the latest registration: latest end date, else (no dates in the view)
+      // the most current status — active, then upcoming, pause, expired.
+      const rank = ({ 1: 4, 3: 3, 5: 2, 2: 1 })[st] || 0;
+      if (!g.pick || (end || '') > g.pick.end || ((end || '') === g.pick.end && rank > g.pick.rank)) {
+        g.pick = { end: end || '', rank };
+        if (end) g.end = end;
+        g.batch = String(r.class || '').trim() || g.batch;
+        g.status = st;
+      }
+      if (!g.batch && r.class) g.batch = String(r.class).trim();
+      if (!g.fide_id && Number(r.fide_id) > 0) g.fide_id = String(r.fide_id).trim();
+    });
+    const studentsOnMobile = new Map();
+    groups.forEach(g => studentsOnMobile.set(g.mobile_number, (studentsOnMobile.get(g.mobile_number) || 0) + 1));
+    p.rows = [...groups.values()].map(g => {
+      if (!g.fide_id) {
+        // FIDE ID from cc_users: the user on this mobile with this name. When siblings share the
+        // number only a name match counts; a lone student takes the mobile's only user.
+        const cands = usersByMobile.get(g.mobile_number) || [];
+        const n = nameWords(g.player_name);
+        const u = cands.find(c => nameWords([c.first_name, c.last_name].join(' ')) === n)
+          || (studentsOnMobile.get(g.mobile_number) === 1 && cands.length === 1 ? cands[0] : null);
+        if (u) g.fide_id = String(u.fide_id).trim();
+      }
+      // Dates missing in the view: take them from cc_csoc_registration (same mobile number)
+      const d = subDates.get(assigneeKey(g.mobile_number));
+      if (d) {
+        if (!g.start) g.start = d.start;
+        if (!g.end) g.end = d.end;
+      }
+      const effEnd = g.end && g.end < today ? g.end : today;
+      g.startYm = g.start.slice(0, 7);
+      g.endYm = effEnd.slice(0, 7);
+      g.endIsNow = !g.end || g.end >= today;
+      g.months = g.start ? monthsBetween(g.start, effEnd) : null;
+      return g;
+    });
+    progStatusCounts();
+    p.visKey = '';
+    p.loaded = true;
+  } catch (e) {
+    console.error('[csa] student progress load failed', e);
+    p.error = 'Could not load students: ' + errMsg(e, 'unknown error');
+  }
+  p.loading = false;
+  renderProg();
+}
+
+// Status dropdown counts over the students this user may see
+function progStatusCounts() {
+  const p = state.prog;
+  p.statusCounts = new Map();
+  p.visible = 0;
+  p.rows.forEach(r => {
+    if (!mineOk(r.mobile_number)) return;
+    p.visible++;
+    const n = statusNum(r.status);
+    p.statusCounts.set(n, (p.statusCounts.get(n) || 0) + 1);
+  });
+}
+
+// Last rating of `field` on a list up to month ym ('YYYY-MM'); hist sorted by period. 0 = unrated.
+function ratingAt(hist, ym, field) {
+  let v = 0;
+  for (const h of hist) {
+    if (h.period > ym) break;
+    if (Number(h[field]) > 0) v = Number(h[field]);
+  }
+  return v;
+}
+
+// { state: 'ok'|'loading'|'err'|'nofide', std/rap/bli: { a: start rating, b: end rating, d: b - a | null } }
+// Cached per row until its history entry changes — sorting and KPIs call this thousands of times.
+const progMemo = new WeakMap();
+function progRatings(r) {
+  if (!r.fide_id) return { state: 'nofide' };
+  const h = state.prog.hist.get(r.fide_id);
+  if (!h || h.status === 'loading') return { state: 'loading' };
+  if (h.status === 'err') return { state: 'err', error: h.error };
+  const m = progMemo.get(r);
+  if (m && m.h === h) return m.out;
+  const out = { state: 'ok', source: h.source };
+  GOT_TYPES.forEach(t => {
+    const a = r.startYm ? ratingAt(h.data, r.startYm, t.rating) : 0;
+    const b = ratingAt(h.data, r.endYm, t.rating);
+    out[t.key] = { a, b, d: a && b ? b - a : null };
+  });
+  progMemo.set(r, { h, out });
+  return out;
+}
+
+const PROG_SORT_GET = {
+  name: r => r.player_name || '',
+  dur: r => r.months,
+  std: r => { const x = progRatings(r); return x.state === 'ok' ? x.std.d : null; },
+  rap: r => { const x = progRatings(r); return x.state === 'ok' ? x.rap.d : null; },
+  bli: r => { const x = progRatings(r); return x.state === 'ok' ? x.bli.d : null; },
+};
+
+// Students matching the filters (ratings loaded or not) — what the rating loader works through.
+// Re-filtered/sorted only when a filter, the sort or (for rating sorts) the loaded ratings changed.
+function progBaseRows() {
+  const p = state.prog;
+  const ratingSort = ['std', 'rap', 'bli'].includes(p.sort.key);
+  const key = [p.rows.length, state.mine ? state.mine.size : '', p.search, p.status, p.duration, p.sort.key, p.sort.dir, ratingSort ? p.histVer : ''].join('|');
+  if (key === p.visKey) return p.visRows;
+  p.visKey = key;
+  p.visRows = progFilterRows();
+  return p.visRows;
+}
+
+// A rating moved between the two dates (gain, loss, or newly rated) in any of the three types
+function progHasChange(r) {
+  const x = progRatings(r);
+  return x.state === 'ok' && GOT_TYPES.some(t => { const v = x[t.key]; return (v.d !== null && v.d !== 0) || (v.b > 0 && !v.a); });
+}
+
+// Rows shown: only students whose rating changed (rows with no change / no rating are left out)
+let progShown = { key: '', rows: [] };
+function progVisibleRows() {
+  const base = progBaseRows();
+  const key = state.prog.visKey + '|' + state.prog.histVer;
+  if (progShown.key !== key || progShown.base !== base) progShown = { key, base, rows: base.filter(progHasChange) };
+  return progShown.rows;
+}
+function progFilterRows() {
+  const p = state.prog;
+  const s = p.search.trim().toLowerCase();
+  const digits = s.replace(/\D/g, '');
+  const dur = PROG_DURATIONS.find(d => d[0] === p.duration);
+  let rows = p.rows.filter(r => {
+    if (!mineOk(r.mobile_number)) return false;
+    if (p.status !== 'all' && statusNum(r.status) !== p.status) return false;
+    if (s && !(digits.length >= 3 && String(r.mobile_number).replace(/\D/g, '').includes(digits))
+      && !r.player_name.toLowerCase().includes(s) && !String(r.mobile_number).includes(s)
+      && !assigneeOf(r.mobile_number).toLowerCase().includes(s)) return false;
+    if (dur && dur.length > 2 && !(r.months !== null && r.months >= dur[2] && r.months < dur[3])) return false;
+    return true;
+  });
+  if (p.sort.key) rows = sortRows(rows, PROG_SORT_GET[p.sort.key], p.sort.dir);
+  return rows;
+}
+
+let progTimer = null;
+function scheduleProgRender() {
+  if (progTimer) return;
+  progTimer = setTimeout(() => { progTimer = null; if (state.tab === 'prog') renderProg(); }, 300);
+}
+
+// Loads rating histories for the rows on screen first, then the rest of the filtered rows.
+// Re-reads the filter after every few players, so a new filter is served quickly.
+async function progRatingsRun() {
+  const p = state.prog;
+  if (p.running || !p.loaded || Date.now() < p.blockedUntil) return;
+  // Students matching the filters first, then everyone else this user may see — the status
+  // dropdown counts "students with a change" for every status, so all ratings are needed.
+  const pending = () => {
+    const vis = progBaseRows();
+    const ids = [], seen = new Set();
+    vis.concat(p.rows.filter(r => mineOk(r.mobile_number))).forEach(r => {
+      if (r.fide_id && !p.hist.has(r.fide_id) && !seen.has(r.fide_id)) { seen.add(r.fide_id); ids.push(r.fide_id); }
+    });
+    return ids;
+  };
+  if (!pending().length) return;
+  p.running = true;
+  const anyUp = () => FIDE_SOURCES.some(src => fideSrc.up[src.key]);
+  try {
+    if (!anyUp() || Date.now() - fideSrc.checkedAt > 10 * 60000) {
+      setStatus('prog', 'Checking which FIDE sources work…');
+      await checkFideSources();
+    }
+    // Each lane takes the next pending ID (current page first) as soon as it is free.
+    const lane = async () => {
+      while (anyUp()) {
+        const fid = pending()[0];
+        if (!fid) return;
+        p.hist.set(fid, { status: 'loading' });
+        const r = await fideHistory(fid);
+        p.hist.set(fid, r.ok
+          ? { status: 'ok', source: r.source, data: (r.data || []).map(x => ({ ...x, period: String(x.period || '').slice(0, 7) })).sort((a, b) => (a.period < b.period ? -1 : a.period > b.period ? 1 : 0)) }
+          : { status: 'err', error: r.error });
+        p.histVer++;
+        scheduleProgRender();
+      }
+    };
+    await Promise.all(Array.from({ length: GOT_PARALLEL }, lane));
+    if (!anyUp()) p.blockedUntil = Date.now() + 60000; // no source: wait before probing again
+  } finally {
+    p.running = false;
+    scheduleProgRender();
+  }
+}
+
+function progCell(rs, x) {
+  if (rs.state === 'loading') return '<span style="' + MUTED + '">…</span>';
+  if (rs.state === 'nofide') return '<span style="' + MUTED + '" title="No FIDE ID for this student">—</span>';
+  if (rs.state === 'err') return '<span style="color:' + C.red + ';font-weight:600;" title="' + esc(rs.error) + '">Not loaded</span>';
+  if (!x.a && !x.b) return '<span style="' + MUTED + '">—</span>';
+  const top = '<span><span style="color:' + C.sub + ';">' + (x.a || 'unrated') + '</span> → <b>' + (x.b || '—') + '</b></span>';
+  let diff = '';
+  if (x.d !== null) {
+    const color = x.d > 0 ? C.green : x.d < 0 ? C.red : C.sub;
+    diff = '<div style="font-weight:700;color:' + color + ';">' + (x.d > 0 ? '+' : '') + x.d + '</div>';
+  } else if (x.b && !x.a) diff = '<div><span style="' + PILL('#ECFDF5', '#047857', '#A7F3D0') + 'padding:1px 7px;font-size:10.5px;">Newly rated</span></div>';
+  return top + diff;
+}
+
+function renderProg() {
+  const p = state.prog;
+  const sel = ctx.element.querySelector('select[data-c="prog-duration"]');
+  if (!sel.options.length) sel.innerHTML = PROG_DURATIONS.map(d => '<option value="' + d[0] + '">' + d[1] + '</option>').join('');
+  sel.value = p.duration;
+  // Status options (same as Got Rating) with counts, updated in place so an open dropdown stays open
+  const stSel = ctx.element.querySelector('select[data-c="prog-status"]');
+  if (!stSel.options.length) stSel.innerHTML = PROG_STATUS_FILTERS.map(f => '<option value="' + f[0] + '">' + f[1] + '</option>').join('');
+  // Counts: students with a rating change, per latest-registration status
+  const changed = new Map();
+  let changedAll = 0;
+  if (p.loaded) p.rows.forEach(r => {
+    if (!mineOk(r.mobile_number) || !progHasChange(r)) return;
+    changedAll++;
+    const n = statusNum(r.status);
+    changed.set(n, (changed.get(n) || 0) + 1);
+  });
+  PROG_STATUS_FILTERS.forEach((f, i) => {
+    const n = !p.loaded ? null : f[0] === 'all' ? changedAll : (changed.get(f[0]) || 0);
+    stSel.options[i].textContent = f[1] + (n === null ? '' : ' (' + n + ')');
+  });
+  stSel.value = String(p.status);
+  const base = progBaseRows();
+  const rows = progVisibleRows();
+
+  // Status line + progress over every student matching the filters (ratings still loading included)
+  const withFide = base.filter(r => r.fide_id);
+  const done = withFide.filter(r => { const h = p.hist.get(r.fide_id); return h && h.status !== 'loading'; }).length;
+  const failed = withFide.filter(r => { const h = p.hist.get(r.fide_id); return h && h.status === 'err'; }).length;
+  const loadingMore = done < withFide.length;
+  if (p.loading) setStatus('prog', 'Loading students…');
+  else if (p.error) setStatus('prog', p.error, 'err');
+  else if (p.loaded) {
+    const noSource = Date.now() < p.blockedUntil && loadingMore;
+    setStatus('prog', noSource ? 'No FIDE source is reachable right now — ratings can’t be loaded. Press Reload in a minute.'
+      : fmtNum(rows.length) + ' students with a rating change'
+        + (loadingMore ? ' · checking ratings ' + fmtNum(done) + ' / ' + fmtNum(withFide.length) + '…' : ' (of ' + fmtNum(base.length) + ' checked)')
+        + (failed ? ' · ' + failed + ' could not be loaded (Reload retries them)' : ''), noSource ? 'err' : '');
+  }
+  setProgress('prog', p.loaded && p.running && loadingMore ? done / withFide.length * 100 : null);
+
+  const rated = rows.map(r => progRatings(r)).filter(x => x.state === 'ok');
+  const stdDiffs = rated.map(x => x.std.d).filter(d => d !== null);
+  const avg = stdDiffs.length ? Math.round(stdDiffs.reduce((a, b) => a + b, 0) / stdDiffs.length) : null;
+  const newly = rated.filter(x => GOT_TYPES.some(t => x[t.key].b && !x[t.key].a)).length;
+  Q('csaKpis_prog').innerHTML = !p.loaded ? '' :
+    kpi('Students', fmtNum(rows.length), C.blue, 'rating changed')
+    + kpi('Avg classical change', avg === null ? '—' : (avg > 0 ? '+' : '') + avg, '#10B981', stdDiffs.length + ' rated at both dates')
+    + kpi('Improved (classical)', fmtNum(stdDiffs.filter(d => d > 0).length), '#0D9488', 'rating went up')
+    + kpi('Newly rated', fmtNum(newly), '#7C3AED', 'unrated at start, rated now');
+
+  // Fixed widths for the text columns (long names wrap); the three rating columns share the rest.
+  const PAD = '10px 8px';
+  const cols = [
+    { label: 'Player', sort: 'name', w: '210px', pad: PAD }, { label: 'Assigned to', w: '110px', pad: PAD },
+    { label: 'Batch', w: '110px', pad: PAD }, { label: 'Status', w: '92px', pad: PAD },
+    { label: 'Duration', sort: 'dur', w: '118px', pad: PAD },
+    { label: 'Classical', sort: 'std', num: true, pad: PAD }, { label: 'Rapid', sort: 'rap', num: true, pad: PAD },
+    { label: 'Blitz', sort: 'bli', num: true, pad: PAD },
+  ];
+  const thead = '<thead><tr>' + cols.map(c => thCell('prog', c)).join('') + '</tr></thead>';
+  let body;
+  if (!p.loaded) body = emptyRow(cols.length, p.error ? esc(p.error) : 'Loading students…');
+  else if (!rows.length) body = emptyRow(cols.length, loadingMore ? 'Checking ratings… students whose rating changed appear here as they load.'
+    : p.rows.length ? 'No students with a rating change match these filters.' : 'No students found.');
+  else {
+    p.page = Math.min(p.page, Math.ceil(rows.length / PAGE_SIZE) - 1);
+    const offset = p.page * PAGE_SIZE;
+    const small = 'font-size:11px;color:' + C.mute + ';overflow-wrap:anywhere;';
+    const td = TD + 'padding:' + PAD + ';';
+    body = rows.slice(offset, offset + PAGE_SIZE).map(r => {
+      const rs = progRatings(r);
+      return '<tr>'
+        // Player, with mobile + FIDE ID underneath
+        + '<td style="' + td + 'overflow-wrap:anywhere;">' + playerCell(r.fide_id, r.player_name, r.mobile_number)
+        + '<div style="' + small + '">' + esc(r.mobile_number || '—') + (r.fide_id ? ' · FIDE ' + esc(r.fide_id) : '') + '</div></td>'
+        + '<td style="' + td + 'font-size:12px;overflow-wrap:anywhere;">' + assigneeCell(r.mobile_number) + '</td>'
+        // Batch fixed at 100px; long codes wrap
+        + '<td style="' + td + 'color:' + C.sub + ';font-size:12px;white-space:normal;overflow-wrap:anywhere;">' + esc(r.batch || '—') + '</td>'
+        + '<td style="' + td + '">' + statusChip(r.status) + '</td>'
+        + '<td style="' + td + '"><div style="font-weight:600;">' + fmtDuration(r.months) + '</div>'
+        + (r.endIsNow ? '<div style="' + small + '">rating as of ' + esc(monthLabel(normalizePeriod(r.endYm))) + '</div>' : '') + '</td>'
+        + GOT_TYPES.map(t => '<td style="' + td + 'text-align:right;">' + progCell(rs, rs[t.key]) + '</td>').join('')
+        + '</tr>';
+    }).join('');
+  }
+  Q('csaTable_prog').innerHTML = thead + '<tbody>' + body + '</tbody>';
+  Q('csaPager_prog').innerHTML = p.loaded ? pagerHtml('prog', p.page, rows.length) : '';
+  progRatingsRun();
+}
+
 // ── Modal shell ─────────────────────────────────────────────────────────────
-function modalShell(iconName, title, subtitle, body) {
+// headerExtra: buttons shown in the header, left of the close button
+function modalShell(iconName, title, subtitle, body, headerExtra) {
   return '<div style="display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid ' + C.line + ';">'
     + '<div style="width:38px;height:38px;border-radius:10px;background:' + C.blueLt + ';color:' + C.blue + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + icon(iconName, 19) + '</div>'
     + '<div style="flex:1;min-width:0;"><div style="font-size:16px;font-weight:700;letter-spacing:-.01em;">' + title + '</div>'
     + (subtitle ? '<div style="color:' + C.sub + ';font-size:12.5px;margin-top:1px;">' + subtitle + '</div>' : '')
-    + '</div><button data-a="close" title="Close" style="' + GHOST + 'padding:7px;">' + icon('x', 16) + '</button></div>'
+    + '</div>' + (headerExtra || '') + '<button data-a="close" title="Close" style="' + GHOST + 'padding:7px;">' + icon('x', 16) + '</button></div>'
     + '<div id="csaModalMsg" style="display:none;margin:14px 22px 0;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:500;border:1px solid transparent;"></div>'
     + '<div style="padding:18px 22px 22px;">' + body + '</div>';
 }
@@ -1706,26 +2910,328 @@ function openConfirm(title, html, okLabel, onOk) {
     + '<button data-a="confirm-ok" style="' + BTN(C.blue) + '">' + esc(okLabel) + '</button></div>'), { onOk });
 }
 
-function openPlayerInfo(fid, name, mobile) {
+// ── Player details page (click a player's name) ────────────────────────────
+// Batch = view_csoc_registration_new.class for the player's mobile number; coach from
+// cc_csoc_batch_name_mapping (group) or cc_csoc_personal_batch_details (1:1) — same
+// lookups as circlechess-dashboard/student_activity.js.
+const batchInfoCache = new Map();
+
+async function loadBatchInfo(mobile, name) {
+  const m = String(mobile || '').trim();
+  if (!m) return null;
+  if (batchInfoCache.has(m + '|' + name)) return batchInfoCache.get(m + '|' + name);
+  const fields = 'player_name,mobile_number,status,class';
+  let regs = await fetchAll(TBL.regView, { fields, filter: JSON.stringify({ mobile_number: { $eq: m } }) });
+  // Same number stored with / without the country code
+  if (!regs.length && mobileKey(m)) regs = await fetchAll(TBL.regView, { fields, filter: JSON.stringify({ mobile_number: { $includes: mobileKey(m) } }) });
+  regs = regs.filter(r => String(r.class || '').trim());
+  // Siblings can share a mobile number: prefer this player's own row, then active (1), then upcoming (3).
+  const n = nameWords(name);
+  const score = r => (n && nameWords(r.player_name) === n ? 10 : 0)
+    + (Number(r.status) === 1 ? 2 : Number(r.status) === 3 ? 1 : 0);
+  regs.sort((a, b) => score(b) - score(a));
+  const reg = regs[0];
+  let info = { batch: '', batchName: '', type: '', coach: '' };
+  if (reg) {
+    const code = String(reg.class).trim();
+    const [group, personal] = await Promise.all([
+      fetchAll(TBL.groupBatch, { fields: 'id,batch_name,batch_display_name,coach_name', filter: JSON.stringify({ batch_name: { $eq: code } }) }),
+      fetchAll(TBL.personalBatch, { fields: 'id,batch_code,coach_name', filter: JSON.stringify({ batch_code: { $eq: code } }) }),
+    ]);
+    const row = group[0] || personal[0] || null;
+    info = {
+      batch: code,
+      batchName: (group[0] && group[0].batch_display_name) || '',
+      type: group[0] ? 'Group' : personal[0] ? 'Personal (1:1)' : '',
+      coach: (row && row.coach_name) || '',
+    };
+  }
+  batchInfoCache.set(m + '|' + name, info);
+  return info;
+}
+
+function detailRow(label, valueHtml) {
+  return '<div style="display:flex;gap:12px;padding:11px 14px;border-top:1px solid ' + C.grid + ';">'
+    + '<div style="width:130px;flex-shrink:0;color:' + C.sub + ';font-size:12.5px;">' + label + '</div>'
+    + '<div style="flex:1;font-weight:600;word-break:break-word;">' + valueHtml + '</div></div>';
+}
+
+function consentToggleHtml(yes) {
+  return '<span style="font-weight:700;color:' + (yes ? C.green : C.red) + ';">' + (yes ? 'Consent given' : 'Consent not given') + '</span>';
+}
+
+// Achievement tab: the result, then consent + images (cc_csoc_cx_consent) and the
+// follow-up status (required) + comment (cc_csoc_achievements), saved together by "Save".
+function achPaneHtml(r) {
+  const fact = (label, value) => '<div style="flex:1 1 120px;min-width:110px;"><div style="font-size:11px;font-weight:600;color:' + C.sub + ';text-transform:uppercase;letter-spacing:.06em;">' + label + '</div>'
+    + '<div style="font-weight:600;margin-top:2px;">' + value + '</div></div>';
+  const tourn = r.tournament_link
+    ? '<a class="csa-t" href="' + esc(r.tournament_link) + '" target="_blank" rel="noopener noreferrer">' + esc(r.tournament_name) + ' ' + icon('externalLink', 12) + '</a>'
+    : esc(r.tournament_name || '—');
+  return '<div style="border:1px solid ' + C.line + ';border-radius:12px;padding:14px 16px;margin-bottom:16px;background:' + C.card + ';">'
+    + '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">' + tourn
+    + (r.is_rated ? ' <span style="background:' + C.blueLt + ';color:' + C.blueDk + ';border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700;letter-spacing:.04em;margin-left:4px;">FIDE</span>' : '') + '</div>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + fact('End date', esc(fmtYMD(r.date) || '—')) + fact('Rank', rankChip(r.rank)) + fact('Rating ±', ratingDelta(r.rating_change))
+    + fact('Subscription', activeChip(achActive(r))) + fact('FIDE ID', esc(r.fide_id || '—'))
+    + '</div></div>'
+    + followupFormHtml(r, meta.achStatus);
+}
+
+// New rating tab (Got Rating): the first ratings, then the same consent / status / comment form,
+// saved to cc_csoc_cx_consent and cc_csoc_got_rating.
+function gotPaneHtml(r) {
+  const fact = (label, value) => '<div style="flex:1 1 120px;min-width:110px;"><div style="font-size:11px;font-weight:600;color:' + C.sub + ';text-transform:uppercase;letter-spacing:.06em;">' + label + '</div>'
+    + '<div style="font-weight:600;margin-top:2px;">' + value + '</div></div>';
+  const rating = t => r[t.key]
+    ? '<span style="color:' + C.blue + ';font-weight:700;">' + r[t.key] + '</span>' + (r[t.key + 'P'] ? ' <span style="font-size:11px;color:' + C.sub + ';">' + esc(monthLabel(r[t.key + 'P'])) + '</span>' : '')
+    : '<span style="' + MUTED + '">—</span>';
+  return '<div style="border:1px solid ' + C.line + ';border-radius:12px;padding:14px 16px;margin-bottom:16px;background:' + C.card + ';">'
+    + '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">First FIDE rating</div>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + GOT_TYPES.map(t => fact(t.label, rating(t))).join('') + fact('FIDE ID', esc(r.fide_id || '—'))
+    + '</div></div>'
+    + followupFormHtml(r, meta.gotStatus);
+}
+
+// Consent + images, status (required) + comment (optional), Save
+function followupFormHtml(r, statusList) {
+  const opts = '<option value="">Select status…</option>' + statusList.map(o => '<option value="' + esc(o.value) + '"' + (o.value === r.fu ? ' selected' : '') + '>' + esc(o.label) + '</option>').join('');
+  return '<label style="' + LBL + '">Consent</label><div id="csaCfChoice" style="display:flex;gap:8px;"></div>'
+    + '<label style="' + LBL + 'margin-top:14px;">Images</label><div id="csaCfImgs"></div>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px;">'
+    + '<div style="flex:1 1 220px;"><label style="' + LBL + '">Status <span style="color:' + C.red + ';">*</span></label>'
+    + '<select id="csaFuStatus" style="' + INP + 'width:100%;cursor:pointer;">' + opts + '</select></div>'
+    + '<div style="flex:2 1 300px;"><label style="' + LBL + '">Comment <span style="text-transform:none;font-weight:500;">(optional)</span></label>'
+    + '<textarea id="csaFuComment" rows="2" placeholder="Notes from the call…" style="' + INP + 'width:100%;resize:vertical;font-family:inherit;">' + esc(r.comment) + '</textarea></div></div>'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap;">'
+    + '<div id="csaFuLast" style="flex:1;font-size:12px;color:' + C.sub + ';">' + fuLastHtml(r) + '</div>'
+    + '<button data-a="close" style="' + GHOST + '">Close</button>'
+    + '<button data-a="fu-save" style="' + BTN(C.blue) + '">' + icon('checkCircle', 14) + 'Save</button></div>';
+}
+function fuLastHtml(r) {
+  return r.connected_by || r.connected_at
+    ? 'Last saved by <b>' + esc(r.connected_by || '?') + '</b>' + (r.connected_at ? ' · ' + esc(fmtDateTime(r.connected_at)) : '')
+    : 'Not followed up yet';
+}
+
+function switchDetTab(tab) {
+  ['profile', 'ach'].forEach(k => { const pane = Q('csaDetPane_' + k); if (pane) pane.style.display = k === tab ? 'block' : 'none'; });
+  ctx.element.querySelectorAll('#csaDetTabs [data-a="det-tab"]').forEach(b => { b.setAttribute('style', tabStyle(b.getAttribute('data-tab') === tab)); });
+  fitRootToModal();
+}
+
+// Saves the follow-up of an Achievers result (m.achId -> cc_csoc_achievements)
+// or a Got Rating player (m.gotId -> cc_csoc_got_rating).
+async function saveAchFollowup(btn) {
+  const m = state.modal;
+  const isGot = m.gotId !== undefined;
+  const a = isGot ? state.got : state.ach;
+  const tbl = isGot ? TBL.got : TBL.ach;
+  const fields = isGot ? meta.gotFields : meta.achFields;
+  const list = isGot ? meta.gotStatus : meta.achStatus;
+  const r = isGot ? state.got.rows.find(x => String(x.id) === String(m.gotId)) : findAchRow(m.achId);
+  if (!r) { modalMessage('This ' + (isGot ? 'player' : 'result') + ' is no longer loaded — reload the page.', 'error'); return; }
+  const status = Q('csaFuStatus').value;
+  const comment = Q('csaFuComment').value.trim();
+  if (!status) { modalMessage('Select a status — it is required.', 'error'); Q('csaFuStatus').focus(); return; }
+  btn.disabled = true;
+  try {
+    // 1. New images to storage
+    while (m.pending.length) {
+      btn.textContent = 'Uploading image ' + (m.images.length + 1) + '…';
+      m.images.push(await uploadImage(m.pending[0].file));
+      m.pending.shift();
+      renderCfImages();
+    }
+    btn.textContent = 'Saving…';
+    // 2. Consent + images -> cc_csoc_cx_consent — only when there is something to save: a consent
+    //    record already exists, the Consent choice was clicked, or images were added. Otherwise the
+    //    untouched default ("Not given") would be saved as a real "No".
+    const crec = findConsent(m.fid, m.mobile);
+    let warn = '';
+    if (crec || m.yesTouched || m.images.length) {
+      const cvals = { player_name: crec ? crec.player_name || m.name : m.name, fide_id: m.fid ? Number(m.fid) : null, mobile_number: m.mobile || null, is_consent: !!m.yes };
+      const imgs = m.images.length || (crec && crec.images.length) ? m.images : null;
+      if (imgs) cvals.images = consentImagesValue(imgs);
+      warn = await saveConsentRecord(crec && crec.id, cvals, imgs);
+    }
+    // 3. Follow-up -> cc_csoc_achievements / cc_csoc_got_rating, stamped with who / when
+    const user = await currentUserName();
+    const now = new Date().toISOString();
+    const avals = { status, connected_by: user, connected_date_time: now };
+    if (!fields || fields.has('comment')) avals.comment = comment || null;
+    await dbUpdate(tbl, r.id, avals);
+    // Every loaded copy: the page's rows (+ Create Poster rows), the per-month caches
+    const patch = { fu: status, comment, connected_by: user, connected_at: now };
+    [a.rows].concat(isGot ? [] : [state.fu.rows]).forEach(rows => rows.forEach(x => { if (x.id === r.id) Object.assign(x, patch); }));
+    Object.keys(a.cache).forEach(k => a.cache[k].forEach(rec => { if (rec.id === r.id) Object.assign(rec, avals); }));
+    await loadConsent();
+    if (isGot) renderGot(); else { renderAch(); renderFollowups(); }
+    renderTabs();
+    if (state.modal !== m) return;
+    Q('csaFuLast').innerHTML = fuLastHtml(r);
+    renderDetImages();
+    const noComment = comment && fields && !fields.has('comment');
+    const consentNote = crec || m.yesTouched || m.images.length ? ' · consent ' + (m.yes ? 'given' : 'not given') : '';
+    modalMessage(warn || (noComment ? 'Saved — but the comment was not: ' + tbl + ' has no "comment" field.'
+      : 'Saved: ' + fuLabel(status, list) + consentNote), warn || noComment ? 'error' : 'success');
+  } catch (e) {
+    console.error('[csa] follow-up save failed', e);
+    modalMessage('Could not save: ' + errMsg(e, 'unknown error'), 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = icon('checkCircle', 14) + 'Save';
+}
+
+// achId (from an Achievers row): adds the Achievement tab — result details, consent + images
+// (saved to cc_csoc_cx_consent) and the follow-up status / comment (saved to cc_csoc_achievements).
+function openPlayerDetails(fid, name, mobile, achId, gotI) {
+  const ach = achId ? findAchRow(achId) : null;
+  // Got Rating row: gets a "New rating" follow-up tab (needs the record id)
+  const got = !ach && gotI !== undefined && gotI !== null && gotI !== '' ? state.got.rows[Number(gotI)] || null : null;
+  const fuRow = ach || (got && got.id !== undefined && got.id !== null ? got : null);
+  // Poster for this result (Achievers / Follow-ups) or this new rating (Got Rating)
+  const posterBtn = (act, i) => '<button data-a="' + act + '" data-i="' + esc(i) + '" style="' + GHOST + 'color:' + C.blue + ';">' + icon('image', 14) + 'Poster</button>';
+  const headerExtra = ach ? posterBtn('poster-ach', ach.id) : got ? posterBtn('poster-got', Number(gotI)) : '';
   const p = playerById(fid) || {};
-  const rows = [
-    ['Player', p.player_name || name || '—'],
-    ['Mobile', p.mobile_number || mobile || '—'],
-    ['FIDE ID', fid || '—'],
-    ['Status', statusLabel(p.status) || '—'],
-    ['Subscription start', fmtYMD(p.subscription_start_date) || '—'],
-    ['Subscription end', fmtYMD(p.subscription_end_date) || '—'],
-  ];
+  const playerName = name || p.player_name || '';
+  const mob = mobile || p.mobile_number || '';
+  const yes = hasConsent(fid, mob);
   const fideLink = fid
-    ? '<a href="https://ratings.fide.com/profile/' + esc(fid) + '" target="_blank" rel="noopener noreferrer" style="' + GHOST + 'text-decoration:none;color:' + C.blue + ';">' + icon('externalLink', 14) + 'FIDE profile</a>'
+    ? '<a href="https://ratings.fide.com/profile/' + esc(fid) + '" target="_blank" rel="noopener noreferrer" style="color:' + C.blue + ';text-decoration:none;">' + esc(fid) + ' ' + icon('externalLink', 12) + '</a>'
+    : '<span style="' + MUTED + '">—</span>';
+  const sub = p.subscription_start_date || p.subscription_end_date
+    ? esc(fmtYMD(p.subscription_start_date) || '?') + ' – ' + esc(fmtYMD(p.subscription_end_date) || '?') : '<span style="' + MUTED + '">—</span>';
+  const loading = '<span style="' + MUTED + 'font-weight:500;">Loading…</span>';
+  const tabs = fuRow
+    ? '<div id="csaDetTabs" style="' + SEG + 'margin-bottom:16px;">'
+      + '<button data-a="det-tab" data-tab="profile" style="' + tabStyle(false) + '">' + icon('user', 14) + 'Player profile</button>'
+      + '<button data-a="det-tab" data-tab="ach" style="' + tabStyle(true) + '">' + icon('trophy', 14) + (ach ? 'Achievement' : 'New rating') + '</button></div>'
     : '';
-  openModal('player', 440, modalShell('user', esc(p.player_name || name || 'Player'), fid ? 'FIDE ID ' + esc(fid) : '',
-    '<div style="border:1px solid ' + C.line + ';border-radius:10px;overflow:hidden;">' + rows.map((r, i) =>
-      '<div style="display:flex;gap:12px;padding:10px 14px;' + (i ? 'border-top:1px solid ' + C.grid + ';' : '') + '">'
-      + '<div style="width:140px;color:' + C.sub + ';font-size:12.5px;">' + r[0] + '</div>'
-      + '<div style="flex:1;font-weight:600;word-break:break-word;">' + esc(r[1]) + '</div></div>').join('') + '</div>'
-    + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">' + fideLink
-    + '<button data-a="close" style="' + BTN(C.blue) + '">Done</button></div>'));
+  const crec = findConsent(fid, mob);
+  openModal('details', 760, modalShell('user', esc(playerName || 'Player'), ach ? esc(ach.tournament_name || 'Achievement') : fuRow ? 'New FIDE rating' : 'Player details',
+    tabs
+    + (fuRow ? '<div id="csaDetPane_ach">' + (ach ? achPaneHtml(ach) : gotPaneHtml(fuRow)) + '</div>' : '')
+    + '<div id="csaDetPane_profile"' + (fuRow ? ' style="display:none;"' : '') + '>'
+    // Consent: saved as soon as the box is ticked / unticked
+    + '<label style="display:flex;align-items:center;gap:12px;padding:14px 16px;border:1.5px solid ' + (yes ? '#A7F3D0' : '#FECACA') + ';border-radius:12px;background:' + (yes ? '#ECFDF5' : '#FEF2F2') + ';cursor:pointer;margin-bottom:14px;" id="csaDetConsentBox">'
+    + '<input type="checkbox" id="csaDetConsent" data-fid="' + esc(fid) + '" data-name="' + esc(playerName) + '" data-mobile="' + esc(mob) + '"' + (yes ? ' checked' : '')
+    + ' style="width:20px;height:20px;cursor:pointer;accent-color:' + C.green + ';">'
+    + '<span style="flex:1;"><span id="csaDetConsentLabel">' + consentToggleHtml(yes) + '</span>'
+    + '<span style="display:block;font-size:12px;color:' + C.sub + ';">For posters and publicity · saved automatically</span></span>'
+    + '<span id="csaDetConsentMsg" style="font-size:12px;font-weight:600;"></span></label>'
+    + '<div id="csaDetImgs" data-fid="' + esc(fid) + '" data-name="' + esc(playerName) + '" data-mobile="' + esc(mob) + '" style="margin:-4px 0 14px;"></div>'
+    + '<div style="border:1px solid ' + C.line + ';border-radius:12px;overflow:hidden;">'
+    + '<div style="display:flex;gap:12px;padding:11px 14px;"><div style="width:130px;flex-shrink:0;color:' + C.sub + ';font-size:12.5px;">Player name</div><div style="flex:1;font-weight:700;">' + esc(playerName || '—') + '</div></div>'
+    + detailRow('Mobile number', esc(mob || '—'))
+    + detailRow('FIDE ID', fideLink)
+    + detailRow('Status', statusChip(p.status))
+    + detailRow('Subscription', sub)
+    + detailRow('Batch', '<span id="csaDetBatch">' + loading + '</span>')
+    + detailRow('Coach name', '<span id="csaDetCoach">' + loading + '</span>')
+    + detailRow('Assigned to', assigneeCell(mob))
+    + '</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-top:16px;"><button data-a="close" style="' + BTN(C.blue) + '">Done</button></div>'
+    + '</div>', headerExtra),
+  fuRow ? Object.assign(ach ? { achId: ach.id } : { gotId: fuRow.id },
+    { fuForm: true, fid: String(fid || ''), name: playerName, mobile: mob, yes: yes, images: crec ? crec.images.slice() : [], pending: [] }) : null);
+  const modal = state.modal;
+  renderDetImages();
+  if (fuRow) { renderConsentChoice(); renderCfImages(); }
+  loadBatchInfo(mob, p.player_name || playerName).then(info => {
+    if (state.modal !== modal) return; // closed / replaced meanwhile
+    Q('csaDetBatch').innerHTML = info && info.batch
+      ? esc(info.batch) + (info.batchName ? ' <span style="color:' + C.sub + ';font-weight:500;">· ' + esc(info.batchName) + '</span>' : '')
+        + (info.type ? ' <span style="' + PILL(C.blueLt, C.blueDk, '#DBEAFE') + 'margin-left:4px;">' + esc(info.type) + '</span>' : '')
+      : '<span style="' + MUTED + '">' + (mob ? 'No batch found' : 'No mobile number') + '</span>';
+    Q('csaDetCoach').innerHTML = info && info.coach ? esc(info.coach) : '<span style="' + MUTED + '">—</span>';
+  }).catch(e => {
+    console.error('[csa] batch lookup failed', e);
+    if (state.modal !== modal) return;
+    Q('csaDetBatch').innerHTML = '<span style="color:' + C.red + ';font-weight:500;">Could not load: ' + esc(errMsg(e, 'error')) + '</span>';
+    Q('csaDetCoach').innerHTML = '<span style="' + MUTED + '">—</span>';
+  });
+}
+
+// Consent images on the details page: thumbnails (click = viewer) + "Add images" (uploads and saves right away)
+function renderDetImages(note, tone) {
+  const el = Q('csaDetImgs');
+  if (!el) return;
+  const rec = findConsent(el.getAttribute('data-fid'), el.getAttribute('data-mobile'));
+  const imgs = rec ? rec.images : [];
+  el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+    + '<span style="font-size:12px;font-weight:600;color:' + C.sub + ';text-transform:uppercase;letter-spacing:.06em;margin-right:4px;">Images</span>'
+    + (imgs.length
+      ? '<button data-a="consent-imgs" data-id="' + esc(rec.id) + '" title="View / download" style="display:inline-flex;gap:6px;align-items:center;padding:3px;border:1px solid ' + C.line + ';border-radius:10px;background:#fff;cursor:pointer;">'
+        + imgs.slice(0, 5).map(im => imageThumb(im, '', 40)).join('')
+        + '<span style="font-size:12px;font-weight:700;color:' + C.blue + ';padding:0 6px;">' + (imgs.length > 5 ? '+' + (imgs.length - 5) + ' · ' : '') + 'View</span></button>'
+      : '<span style="font-size:12.5px;' + MUTED + '">None yet</span>')
+    + '<label style="' + GHOST + 'padding:5px 10px;font-size:12px;color:' + C.blue + ';">' + icon('upload', 13) + 'Add images'
+    + '<input type="file" accept="image/*" multiple data-c="det-files" style="display:none;"></label>'
+    + (note ? '<span style="font-size:12px;font-weight:600;color:' + (tone === 'err' ? C.red : tone === 'ok' ? C.green : C.sub) + ';">' + esc(note) + '</span>' : '')
+    + '</div>';
+  fitRootToModal();
+}
+
+async function uploadDetImages(files) {
+  const el = Q('csaDetImgs');
+  if (!el || !files.length) return;
+  const fid = el.getAttribute('data-fid'), name = el.getAttribute('data-name'), mobile = el.getAttribute('data-mobile');
+  const modal = state.modal;
+  const rec = findConsent(fid, mobile);
+  const images = rec ? rec.images.slice() : [];
+  try {
+    for (let i = 0; i < files.length; i++) {
+      renderDetImages('Uploading ' + (i + 1) + ' / ' + files.length + '…');
+      images.push(await uploadImage(files[i]));
+    }
+    // No consent record yet: create one with the current tick
+    const box = Q('csaDetConsent');
+    const values = rec ? { images: consentImagesValue(images) }
+      : { player_name: name, fide_id: fid ? Number(fid) : null, mobile_number: mobile || null, is_consent: !!(box && box.checked), images: consentImagesValue(images) };
+    const warn = await saveConsentRecord(rec && rec.id, values, images);
+    await loadConsent();
+    if (state.modal !== modal) return;
+    // The Achievement tab's image list (if open) must not overwrite these on its own Save
+    if (!warn && state.modal.images) { state.modal.images = images.slice(); renderCfImages(); }
+    if (warn) renderDetImages(warn, 'err');
+    else renderDetImages(files.length + (files.length === 1 ? ' image' : ' images') + ' saved ✓', 'ok');
+  } catch (e) {
+    console.error('[csa] image upload failed', e);
+    if (state.modal === modal) renderDetImages('Upload failed: ' + errMsg(e, 'error'), 'err');
+  }
+}
+
+// Ticking / unticking the consent box saves it straight away (update the player's record, or create one).
+async function saveConsentToggle(el) {
+  const fid = el.getAttribute('data-fid'), name = el.getAttribute('data-name'), mobile = el.getAttribute('data-mobile');
+  const yes = el.checked;
+  const msg = Q('csaDetConsentMsg');
+  el.disabled = true;
+  msg.style.color = C.sub;
+  msg.textContent = 'Saving…';
+  try {
+    const values = { player_name: name, fide_id: fid ? Number(fid) : null, mobile_number: mobile || null, is_consent: yes };
+    const rec = findConsent(fid, mobile);
+    if (rec) await dbUpdate(TBL.consent, rec.id, values);
+    else await dbCreate(TBL.consent, values);
+    await loadConsent();
+    // Keep the Achievement tab's consent choice in step with this box
+    if (state.modal && state.modal.fuForm) { state.modal.yes = yes; renderConsentChoice(); }
+    if (Q('csaDetConsentMsg')) {
+      Q('csaDetConsentLabel').innerHTML = consentToggleHtml(yes);
+      Q('csaDetConsentBox').style.borderColor = yes ? '#A7F3D0' : '#FECACA';
+      Q('csaDetConsentBox').style.background = yes ? '#ECFDF5' : '#FEF2F2';
+      Q('csaDetConsentMsg').style.color = C.green;
+      Q('csaDetConsentMsg').textContent = 'Saved ✓';
+    }
+  } catch (e) {
+    console.error('[csa] consent toggle save failed', e);
+    el.checked = !yes;
+    if (Q('csaDetConsentMsg')) { Q('csaDetConsentMsg').style.color = C.red; Q('csaDetConsentMsg').textContent = 'Not saved: ' + errMsg(e, 'error'); }
+  }
+  el.disabled = false;
 }
 
 // ── 4. Posters (canvas) ─────────────────────────────────────────────────────
@@ -2006,10 +3512,13 @@ function renderPosterEditor(scope) {
   if (scope === 'modal') fitRootToModal();
 }
 
-function downloadHref(href, filename) {
+// newTab: for files on another host (download= is ignored cross-origin, so open them in a tab
+// instead of leaving NocoBase)
+function downloadHref(href, filename, newTab) {
   const a = Q('csaDl');
   a.setAttribute('href', href);
   a.setAttribute('download', filename);
+  if (newTab) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener'); } else a.removeAttribute('target');
   a.click();
 }
 
@@ -2057,8 +3566,8 @@ async function fileToDataUrl(file) {
   return 'data:' + (file.type || 'image/png') + ';base64,' + bytesToBase64(new Uint8Array(buf));
 }
 
-function openAchPoster(i) {
-  const r = state.ach.rows[i];
+function openAchPoster(id) {
+  const r = findAchRow(id);
   if (!r) return;
   const gainable = r.is_rated && r.rating_change > 0;
   state.poster.modal = {
@@ -2107,7 +3616,7 @@ function renderCustom() {
 }
 
 // ── Event wiring ────────────────────────────────────────────────────────────
-const SORT_DEFAULT_DIR = { rc: -1, date: -1, std: -1, rap: -1, bli: -1 }; // numbers/dates: biggest/newest first
+const SORT_DEFAULT_DIR = { rc: -1, date: -1, std: -1, rap: -1, bli: -1, dur: -1, end: -1, at: -1 }; // numbers/dates: biggest/newest first
 
 Q('csa').addEventListener('click', e => {
   if (e.target === Q('csaBackdrop')) { closeModal(); return; }
@@ -2116,7 +3625,16 @@ Q('csa').addEventListener('click', e => {
   const action = el.getAttribute('data-a');
   const scope = el.getAttribute('data-scope');
   if (action === 'tab') switchTab(el.getAttribute('data-tab'));
-  else if (action === 'filter') { state.ach.filter = el.getAttribute('data-filter'); state.ach.page = 0; renderAch(); }
+  else if (action === 'filter') {
+    // FIDE rated: biggest rating gain first · Podium: rank 1, 2, 3
+    const f = el.getAttribute('data-filter');
+    state.ach.filter = f;
+    state.ach.sort = f === 'rated' ? { key: 'rc', dir: -1 } : f === 'podium' ? { key: 'rank', dir: 1 } : { key: null, dir: 1 };
+    state.ach.page = 0;
+    renderAch();
+  }
+  else if (action === 'det-tab') switchDetTab(el.getAttribute('data-tab'));
+  else if (action === 'fu-save') saveAchFollowup(el);
   else if (action === 'sort') {
     const st = state[scope].sort;
     const key = el.getAttribute('data-key');
@@ -2128,16 +3646,40 @@ Q('csa').addEventListener('click', e => {
     state[scope].page = Number(el.getAttribute('data-page')) || 0;
     renderScope(scope);
   }
-  else if (action === 'refresh') { if (scope === 'ach') loadAch(); else if (scope === 'got') loadGot(); else loadConsent(); }
+  else if (action === 'refresh') {
+    if (scope === 'ach') loadAch();
+    else if (scope === 'got') loadGot();
+    else if (scope === 'fu') { loadFollowups(); loadConsent(); }
+    else if (scope === 'prog') {
+      // Keep loaded ratings; retry the ones that failed.
+      state.prog.hist.forEach((h, fid) => { if (h.status === 'err') state.prog.hist.delete(fid); });
+      state.prog.histVer++;
+      state.prog.blockedUntil = 0;
+      loadProgress();
+    } else loadConsent();
+  }
   else if (action === 'consent-add') openConsentForm();
+  else if (action === 'consent-edit') openConsentForm({ id: el.getAttribute('data-id') });
+  else if (action === 'consent-player') openPlayerDetails(el.getAttribute('data-fid'), el.getAttribute('data-name'), el.getAttribute('data-mobile'), el.getAttribute('data-ach'), el.getAttribute('data-got'));
+  else if (action === 'cf-yes') { state.modal.yes = el.getAttribute('data-v') === '1'; state.modal.yesTouched = true; renderConsentChoice(); }
+  else if (action === 'cf-img-del') { state.modal.images.splice(Number(el.getAttribute('data-i')), 1); renderCfImages(); }
+  else if (action === 'cf-pend-del') { state.modal.pending.splice(Number(el.getAttribute('data-i')), 1); renderCfImages(); }
+  else if (action === 'consent-imgs') openConsentGallery(el.getAttribute('data-id'));
+  else if (action === 'gal-pick') { state.modal.cur = Number(el.getAttribute('data-i')) || 0; renderGallery(); }
+  else if (action === 'gal-dl') { const m = state.modal; downloadImage(m.images[m.cur], m.name, m.cur); }
+  else if (action === 'gal-dl-all') {
+    // One at a time: browsers drop downloads fired in the same instant
+    const m = state.modal;
+    m.images.forEach((im, i) => setTimeout(() => downloadImage(im, m.name, i), i * 600));
+  }
   else if (action === 'consent-save') saveConsentForm(el);
   else if (action === 'fetch') { if (scope === 'ach') confirmFetchAch(); else confirmFetchGot(); }
   else if (action === 'fetch-all') confirmFetchAllRatings();
   else if (action === 'fetch-log') openLog();
   else if (action === 'fetch-stop') { state.got.stop = true; renderLog(); }
   else if (action === 'log-filter') { if (state.got.log) { state.got.log.filter = el.getAttribute('data-filter'); renderLog(); } }
-  else if (action === 'player') openPlayerInfo(el.getAttribute('data-fid'), el.getAttribute('data-name'), el.getAttribute('data-mobile'));
-  else if (action === 'poster-ach') openAchPoster(Number(el.getAttribute('data-i')));
+  else if (action === 'player') openPlayerDetails(el.getAttribute('data-fid'), el.getAttribute('data-name'), el.getAttribute('data-mobile'));
+  else if (action === 'poster-ach') openAchPoster(el.getAttribute('data-i'));
   else if (action === 'poster-got') openGotPoster(Number(el.getAttribute('data-i')));
   else if (action === 'stats-refresh') { state.stats.loaded = false; loadStats(); }
   else if (action === 'stats-csv') downloadStatsCsv();
@@ -2176,6 +3718,33 @@ Q('csa').addEventListener('change', async e => {
     state[scope].month = t.value;
     state[scope].page = 0;
     if (scope === 'ach') loadAch(); else loadGot();
+  } else if (c === 'prog-status') {
+    state.prog.status = t.value === 'all' ? 'all' : Number(t.value);
+    state.prog.page = 0;
+    renderProg();
+  } else if (c === 'prog-duration') {
+    state.prog.duration = t.value;
+    state.prog.page = 0;
+    renderProg();
+  } else if (c === 'fu-status') {
+    state.fu.status = t.value;
+    state.fu.page = 0;
+    renderFollowups();
+    renderTabs();
+  } else if (c === 'ach-sub' || c === 'ach-fu') {
+    state.ach[c === 'ach-sub' ? 'sub' : 'fuFilter'] = t.value;
+    state.ach.page = 0;
+    renderAch();
+  } else if (c === 'gstatus' || c === 'got-fu') {
+    state.got[c === 'gstatus' ? 'status' : 'fuFilter'] = t.value;
+    state.got.page = 0;
+    renderGot();
+  } else if (c === 'cf-files' || c === 'det-files') {
+    const files = Array.from(t.files || []);
+    t.value = ''; // the same file can be picked again
+    if (c === 'cf-files') addPendingImages(files); else uploadDetImages(files);
+  } else if (t.id === 'csaDetConsent') {
+    saveConsentToggle(t);
   } else if (c === 'stats-period') {
     state.stats.period = t.value;
     renderStats();
@@ -2200,6 +3769,8 @@ renderAch();
 renderGot();
 loadPlayers();
 loadConsent();
+loadAssignees();
+metaPromise.then(() => renderAch()); // follow-up status labels from the field setup
 loadAch();
 loadGot();
 loadAssets(); // warm poster artwork
